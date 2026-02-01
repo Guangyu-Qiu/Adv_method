@@ -157,3 +157,30 @@ ggplot(data_ba, aes(x = mean_time, y = diff_time)) +
   theme_minimal()
 ```
 
+# Question 2: adherence at 30min and 10h
+```{r}
+data_q2 <- data %>%
+  mutate(
+    target_time = case_when(
+      sample == 2 ~ 30,
+      sample == 4 ~ 600,),
+    # here we are only interested in adherence of booklet time
+    time_error = if_else(!is.na(booklet) & !is.na(target_time),
+                         booklet - target_time,
+                         NA_real_),
+    abs_error = abs(time_error),
+    compliance = case_when(
+      is.na(target_time) ~ NA_character_,
+      is.na(booklet) ~ NA_character_,
+      abs_error <= 7.5 ~ "Good",
+      abs_error <= 15 ~ "Adequate",
+      TRUE ~ "Poor"))
+
+data_q2 %>%
+  filter(sample %in% c(2, 4)) %>%
+  count(sample, compliance, .drop = TRUE) %>%
+  group_by(sample) %>%
+  mutate(percent = n / sum(n) * 100)
+```
+
+# Question 3
