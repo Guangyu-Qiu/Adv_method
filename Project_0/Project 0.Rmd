@@ -17,6 +17,7 @@ data <- read.csv("Project0_Clean_v2.csv") %>%
     id = SubjectID,
     day = DAYNUMB, # day number: should be 1 - 3
     sample = Collection.Sample, # sample number of a day: 1 - 4
+    sleep = Sleep.Diary.reported.wake.time, 
     # time
     booklet = if_else(sample == 1, 0,
       Booklet..Sample.interval.Decimal.Time..mins.),
@@ -25,12 +26,75 @@ data <- read.csv("Project0_Clean_v2.csv") %>%
     # outcome
     cortisol = Cortisol..nmol.L.,
     dhea = DHEA..nmol.L.)
-
 ```
 
+# check that everyone has 12 records
+```{r}
+data %>%
+  count(id) %>% count(n)
+# Yes
+```
+# check if the first sample always has wake-up time
+```{r}
+table(
+  sample1 = data$sample == 1,
+  wake_na = data$sleep != "")
+# Yes, sample = 1 means having wake-up time
+```
+# check missing rows
+```{r}
+data %>%
+  summarise(
+    booklet_missing = sum(is.na(booklet)),
+    cap_missing = sum(is.na(cap)),
+    cortisol_missing = sum(is.na(cortisol)),
+    dhea_missing = sum(is.na(dhea)))
+```
+# check booklet missing included in cap missing
+```{r}
+table(
+  booklet_na = is.na(data$booklet),
+  cap_na = is.na(data$cap))
+# No, there are only 17 rows overlapping
+# we only have 268/372 rows in terms of non-missing time
+```
+
+# check range of time and outcomes
+```{r}
+ggplot(data, aes(x = booklet)) +
+  geom_histogram(bins = 30, na.rm = TRUE) +
+  labs(title = "Histogram of booklet")
+
+ggplot(data, aes(x = cap)) +
+  geom_histogram(bins = 30, na.rm = TRUE) +
+  labs(title = "Histogram of cap")
+
+ggplot(data, aes(x = cortisol)) +
+  geom_histogram(bins = 30, na.rm = TRUE) +
+  labs(title = "Histogram of cortisol")
+
+ggplot(data, aes(x = dhea)) +
+  geom_histogram(bins = 30, na.rm = TRUE) +
+  labs(title = "Histogram of dhea")
+```
 
 ```{r}
-data$MEMs..Sample.interval.Decimal.Time..mins.
-data
+data %>%
+  summarise(
+    booklet_min = min(booklet, na.rm = TRUE),
+    booklet_max = max(booklet, na.rm = TRUE),
+    cap_min = min(cap, na.rm = TRUE),
+    cap_max = max(cap, na.rm = TRUE),
+    cortisol_min = min(cortisol, na.rm = TRUE),
+    cortisol_max = max(cortisol, na.rm = TRUE),
+    dhea_min = min(dhea, na.rm = TRUE),
+    dhea_max = max(dhea, na.rm = TRUE))
+```
+```{r}
+# following advice from PI, set threshold for two outcomes and remove outliers
+data <- data %>%
+  mutate(
+    dhea_cleaned = if_else(dhea > 0.205, NA_real_, dhea),
+    cortisol_cleaned = if_else(cortisol > 80, NA_real_, cortisol))
 ```
 
