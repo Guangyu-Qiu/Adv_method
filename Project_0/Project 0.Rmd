@@ -61,6 +61,7 @@ table(
 
 # check range of time and outcomes
 ```{r}
+# plot histograms
 ggplot(data, aes(x = booklet)) +
   geom_histogram(bins = 30, na.rm = TRUE) +
   labs(title = "Histogram of booklet")
@@ -96,5 +97,63 @@ data <- data %>%
   mutate(
     dhea_cleaned = if_else(dhea > 0.205, NA_real_, dhea),
     cortisol_cleaned = if_else(cortisol > 80, NA_real_, cortisol))
+# do we believe in it?
+```
+
+# Question 1: consistency of booklet and cap
+```{r}
+# draw the scatter plot of both time with linear regression trend line
+ggplot(data %>% filter(!is.na(cap), !is.na(booklet)),
+       aes(x = cap, y = booklet)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(
+    x = "Electronic cap time (min since waking)",
+    y = "Booklet-recorded time (min since waking)") +
+  theme_minimal()
+```
+
+```{r}
+# correlation: pearson and spearman
+cor(data$cap, data$booklet, use = "complete.obs")
+cor(data$cap, data$booklet, use = "complete.obs",method = "spearman")
+```
+```{r}
+fit_time <- lmer(
+  booklet ~ cap + (1 | id),
+  data = data,
+  REML = FALSE)
+
+summary(fit_time)
+confint(fit_time)
+```
+
+```{r}
+# Bland–Altman: every point represents a pair of measurement
+data_ba <- data %>%
+  filter(!is.na(booklet), !is.na(cap)) %>%
+  mutate(
+    mean_time = (booklet + cap) / 2, # time of the pair of measurement
+    diff_time = booklet - cap) # measurement difference
+
+mean_diff <- mean(data_ba$diff_time)
+sd_diff <- sd(data_ba$diff_time) # for constructing the CI
+upper <- mean_diff + 1.96 * sd_diff
+lower <- mean_diff - 1.96 * sd_diff
+
+ggplot(data_ba, aes(x = mean_time, y = diff_time)) +
+  geom_point(alpha = 0.4) +
+  geom_hline(yintercept = mean_diff, linetype = "solid") +
+  geom_hline(yintercept = upper, linetype = "dashed") +
+  geom_hline(yintercept = lower, linetype = "dashed") +
+  annotate("text", x = Inf, y = mean_diff,
+           label = round(mean_diff, 2), hjust = 1.1, color = "red") +
+  annotate("text", x = Inf, y = upper, 
+           label = round(upper, 2), hjust = 1.1, color = "red") +
+  annotate("text", x = Inf, y = lower, 
+           label = round(lower, 2), hjust = 1.1, color = "red") +
+  labs(x = "Mean time of measurement",
+       y = "Time difference: Booklet – cap (min)") +
+  theme_minimal()
 ```
 
