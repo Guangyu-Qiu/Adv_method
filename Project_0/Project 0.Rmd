@@ -8,6 +8,7 @@ date: "2026-01-26"
 library(tidyverse)
 library(lme4)
 library(lmerTest)
+library(mgcv)
 ```
 
 
@@ -178,9 +179,91 @@ data_q2 <- data %>%
 
 data_q2 %>%
   filter(sample %in% c(2, 4)) %>%
+  mutate(compliance = if_else(is.na(compliance), 
+                              "Missing", compliance),
+         compliance = factor(compliance, 
+          levels = c("Good", "Adequate", "Poor", "Missing"))) %>%
   count(sample, compliance, .drop = TRUE) %>%
   group_by(sample) %>%
-  mutate(percent = n / sum(n) * 100)
+  mutate(percent = round(n / sum(n) * 100, 2))
 ```
 
-# Question 3
+# Question 3: change of outcome over time
+```{r}
+# given that both dhea and cortisol are very right skewed (see above) we have to do log-transform
+# have checked before that both outcomes don't have zero
+data <- data %>%
+  mutate(log_cort = log(cortisol), log_dhea = log(dhea))
+
+ggplot(data, aes(x = log_cort)) +
+  geom_histogram(bins = 30, na.rm = TRUE) +
+  labs(title = "Histogram of log cortisol")
+
+ggplot(data, aes(x = log_dhea)) +
+  geom_histogram(bins = 30, na.rm = TRUE) +
+  labs(title = "Histogram of log dhea")
+# Now both look much more linearly distributed
+```
+
+
+
+```{r}
+ggplot(data, aes(x = log(booklet + 1), y = log_cort, group = id)) +
+  geom_line(alpha = 0.3, color = "grey50") +
+  geom_smooth(aes(group = 1), method = "gam", formula = y ~ s(x, bs="cs"), se = TRUE, color="blue") +
+  scale_x_continuous(
+    breaks = log(c(0,5,10,15,30,60,120,240,600)+1),
+    labels = c(0,5,10,15,30,60,120,240,600)
+  ) +
+  labs(
+    x = "Minutes since waking (log scale for display)",
+    y = "Log cortisol"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(data, aes(x = log(booklet + 1), y = log_dhea, group = id)) +
+  geom_line(alpha = 0.3, color = "grey50") +
+  geom_smooth(aes(group = 1), method = "gam", formula = y ~ s(x, bs="cs"), se = TRUE, color="blue") +
+  scale_x_continuous(
+    breaks = log(c(0,5,10,15,30,60,120,240,600)+1),
+    labels = c(0,5,10,15,30,60,120,240,600)
+  ) +
+  labs(
+    x = "Minutes since waking (log scale for display)",
+    y = "Log DHEA"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+data_q3 <- data %>%
+  mutate(
+    t1 = if_else(booklet <= 10, cap, 10),
+    t2 = if_else(booklet > 10, cap - 10, 0))
+
+# Cortisol
+cort_fit <- lmer(log_cort ~ t1 + t2 + (1 | id), data = data_q3)
+summary(cort_fit)
+
+# DHEA
+dhea_fit <- lmer(log_dhea ~ t1 + t2 + (1 | id), data = data_q3)
+summary(dhea_fit)
+```
+```{r}
+data_q3 <- data %>%
+  mutate(
+    t1_30 = if_else(booklet <= 30, cap, 30),
+    t2_30 = if_else(booklet > 30, cap - 30, 0))
+
+# Cortisol
+cort_fit_30 <- lmer(log_cort ~ t1_30 + t2_30 + (1 | id), data = data_q3)
+summary(cort_fit_30)
+
+# DHEA
+dhea_fit_30 <- lmer(log_dhea ~ t1_30 + t2_30 + (1 | id), data = data_q3)
+summary(dhea_fit_30)
+```
+
+
