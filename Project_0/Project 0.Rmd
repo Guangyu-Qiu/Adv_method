@@ -9,6 +9,10 @@ library(tidyverse)
 library(lme4)
 library(lmerTest)
 library(mgcv)
+library(broom.mixed)
+library(knitr)
+library(kableExtra)
+library(patchwork)
 ```
 
 
@@ -139,6 +143,26 @@ ggplot(data, aes(x = dhea)) +
   geom_histogram(bins = 30, na.rm = TRUE) +
   labs(title = "Histogram of dhea")
 ```
+```{r}
+# code for export
+p_cort <- ggplot(data, aes(x = cortisol)) +
+  geom_histogram(bins = 30, na.rm = TRUE) +
+  labs(title = "Histogram of cortisol",
+       x = "Cortisol (nmol/L)",
+       y = "Count")
+
+p_dhea <- ggplot(data, aes(x = dhea)) +
+  geom_histogram(bins = 30, na.rm = TRUE) +
+  labs(title = "Histogram of DHEA",
+       x = "DHEA (nmol/L)",
+       y = "Count")
+
+p_hist <- p_cort / p_dhea
+
+
+ggsave(filename = "hist_cortisol_dhea.png", plot = p_hist,
+  width = 6, height = 8, dpi = 300)
+```
 
 ```{r}
 data %>%
@@ -164,7 +188,7 @@ data <- data %>%
 # Question 1: consistency of booklet and cap
 ```{r}
 # draw the scatter plot of both time with linear regression trend line
-ggplot(data %>% filter(!is.na(cap), !is.na(booklet)),
+p_time_scatter <- ggplot(data %>% filter(!is.na(cap), !is.na(booklet)),
        aes(x = cap, y = booklet)) +
   geom_point(alpha = 0.4) +
   geom_smooth(method = "lm", se = FALSE) +
@@ -172,6 +196,8 @@ ggplot(data %>% filter(!is.na(cap), !is.na(booklet)),
     x = "Electronic cap time (min since waking)",
     y = "Booklet-recorded time (min since waking)") +
   theme_minimal()
+
+ggsave(filename = "booklet_vs_cap_scatter.png", plot = p_time_scatter,width = 6,height = 6,dpi = 300)
 ```
 
 ```{r}
@@ -180,6 +206,7 @@ cor(data$cap, data$booklet, use = "complete.obs")
 cor(data$cap, data$booklet, use = "complete.obs",method = "spearman")
 ```
 ```{r}
+# Linear mixed model
 fit_time <- lmer(
   booklet ~ cap + (1 | id),
   data = data,
@@ -202,7 +229,7 @@ sd_diff <- sd(data_ba$diff_time) # for constructing the CI
 upper <- mean_diff + 1.96 * sd_diff
 lower <- mean_diff - 1.96 * sd_diff
 
-ggplot(data_ba, aes(x = mean_time, y = diff_time)) +
+p_ba <- ggplot(data_ba, aes(x = mean_time, y = diff_time)) +
   geom_point(alpha = 0.4) +
   geom_hline(yintercept = mean_diff, linetype = "solid") +
   geom_hline(yintercept = upper, linetype = "dashed") +
@@ -216,6 +243,9 @@ ggplot(data_ba, aes(x = mean_time, y = diff_time)) +
   labs(x = "Mean time of measurement",
        y = "Time difference: Booklet – cap (min)") +
   theme_minimal()
+
+ggsave(filename = "bland_altman_booklet_cap.png",plot = p_ba,
+  width = 10,height = 6,dpi = 300)
 ```
 
 # Question 2: adherence at 30min and 10h
@@ -278,8 +308,8 @@ data_q3 <- data %>%
 data_q3_dhea <- data_q3 %>%
   filter(id != 3037)
 
-
-ggplot(data, aes(x = log(booklet + 1), y = log_cort, group = id)) +
+# spaghetti plot for log(cort)
+p_cort <- ggplot(data, aes(x = log(booklet + 1), y = log_cort, group = id)) +
   geom_line(alpha = 0.3, color = "grey50") +
   geom_smooth(aes(group = 1), method = "gam", formula = y ~ s(x, bs="cs"), se = TRUE, color="blue") +
   scale_x_continuous(
@@ -291,10 +321,14 @@ ggplot(data, aes(x = log(booklet + 1), y = log_cort, group = id)) +
     y = "Log cortisol"
   ) +
   theme_minimal()
+
+ggsave(filename = "log_cort.png",plot = p_cort,
+  width = 9,height = 6,dpi = 300)
 ```
 
 ```{r}
-ggplot(data_q3_dhea, aes(x = log(booklet + 1), y = log_dhea, group = id)) +
+# spaghetti plot for log(dhea)
+p_dhea <- ggplot(data_q3_dhea, aes(x = log(booklet + 1), y = log_dhea, group = id)) +
   geom_line(alpha = 0.3, color = "grey50") +
   geom_smooth(aes(group = 1), method = "gam", formula = y ~ s(x, bs="cs"), se = TRUE, color="blue") +
   scale_x_continuous(
@@ -306,17 +340,41 @@ ggplot(data_q3_dhea, aes(x = log(booklet + 1), y = log_dhea, group = id)) +
     y = "Log DHEA"
   ) +
   theme_minimal()
+
+ggsave(filename = "log_dhea.png",plot = p_dhea,
+  width = 9,height = 6,dpi = 300)
 ```
 
 
 ```{r}
-# Cortisol
+# Cortisol LMM
 cort_fit_30 <- lmer(log_cort ~ t1_30 + t2_30 + (1 | id), data = data_q3)
 summary(cort_fit_30)
 
-# DHEA
+# DHEA LMM
 dhea_fit_30 <- lmer(log_dhea ~ t1_30 + t2_30 + (1 | id), data = data_q3_dhea)
 summary(dhea_fit_30)
+```
+
+```{r}
+# we need to transfer the results from log to ratio
+log_to_percent <- function(model) {
+  tidy(model, effects = "fixed", conf.int = TRUE) %>%
+    mutate(
+      est_pct = round((exp(estimate) - 1) * 100, 3),
+      CI_low = round((exp(conf.low) - 1) * 100, 3),
+      CI_high = round((exp(conf.high) - 1) * 100, 3),
+      p_val = ifelse(p.value < 0.001, "<0.001", sprintf("%.3f", p.value))
+    ) %>%
+    dplyr::select(term, est_pct, CI_low, CI_high, p_val)
+}
+
+
+cort_percent <- log_to_percent(cort_fit_30)
+print(cort_percent)
+
+dhea_percent <- log_to_percent(dhea_fit_30)
+print(dhea_percent)
 ```
 
 
