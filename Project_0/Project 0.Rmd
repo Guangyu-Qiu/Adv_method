@@ -26,7 +26,8 @@ data <- read.csv("Project0_Clean_v2.csv") %>%
       MEMs..Sample.interval.Decimal.Time..mins.),
     # outcome
     cortisol = Cortisol..nmol.L.,
-    dhea = DHEA..nmol.L.)
+    dhea = DHEA..nmol.L.,
+    date = Collection.Date)
 ```
 
 # check that everyone has 12 records
@@ -35,6 +36,29 @@ data %>%
   count(id) %>% count(n)
 # Yes
 ```
+```{r}
+data %>%
+  group_by(id, day, sample) %>%
+  filter(n() > 1) %>%
+  arrange(id, day, sample) %>%
+  ungroup()
+# 3029 has wrong day number
+```
+```{r}
+# since this is a small dataset, we change the day number of 3029 manually
+data <- data %>%
+  mutate(
+    day = if_else(
+      id == 3029,
+      case_when(
+        date == "10/7/2018"  ~ 1,
+        date == "10/10/2018" ~ 2,
+        TRUE ~ day),
+      day))
+```
+
+
+
 # check if the first sample always has wake-up time
 ```{r}
 table(
@@ -44,12 +68,48 @@ table(
 ```
 # check missing rows
 ```{r}
-data %>%
+n_total <- nrow(data)
+
+var_missing <- data.frame(
+  var = c("booklet", "cap", "cortisol", "dhea"),
+  missing = c(
+    sum(is.na(data$booklet)),
+    sum(is.na(data$cap)),
+    sum(is.na(data$cortisol)),
+    sum(is.na(data$dhea))
+  )
+) %>%
+  mutate(percent = round(missing / n_total * 100, 1))
+
+q1 <- data.frame(
+  var = "Q1 sample",
+  missing = sum(is.na(data$booklet) | is.na(data$cap)),
+  percent = round(sum(is.na(data$booklet) | is.na(data$cap)) / n_total * 100, 1)
+)
+
+# we know that we will need to get rid of outlier later
+q3_cort_out <- data %>%
+  mutate(
+    cortisol_cleaned = if_else(cortisol > 80, NA_real_, cortisol)
+  ) %>%
   summarise(
-    booklet_missing = sum(is.na(booklet)),
-    cap_missing = sum(is.na(cap)),
-    cortisol_missing = sum(is.na(cortisol)),
-    dhea_missing = sum(is.na(dhea)))
+    var = "Q3 sample (cort)",
+    missing = sum(is.na(booklet) | is.na(cortisol_cleaned)),
+    percent = round(sum(is.na(booklet) | is.na(cortisol_cleaned)) / n_total * 100, 1))
+
+# Q3 sample for dhea: remove outlier and set 3037 to missing
+q3_dhea_out <- data %>%
+  mutate(
+    dhea_cleaned = if_else(dhea >= 5.205 | id == 3037, NA_real_, dhea)
+  ) %>%
+  summarise(
+    var = "Q3 sample (dhea)",
+    missing = sum(is.na(booklet) | is.na(dhea_cleaned)),
+    percent = round(sum(is.na(booklet) | is.na(dhea_cleaned)) / n_total * 100, 1)
+  )
+
+missing_table <- bind_rows(var_missing, q1, q3_cort_out, q3_dhea_out)
+missing_table
 ```
 # check booklet missing included in cap missing
 ```{r}
@@ -96,7 +156,7 @@ data %>%
 # following advice from PI, set threshold for two outcomes and remove outliers
 data <- data %>%
   mutate(
-    dhea_cleaned = if_else(dhea > 0.205, NA_real_, dhea),
+    dhea_cleaned = if_else(dhea >= 5.205, NA_real_, dhea),
     cortisol_cleaned = if_else(cortisol > 80, NA_real_, cortisol))
 # do we believe in it?
 ```
@@ -192,8 +252,9 @@ data_q2 %>%
 ```{r}
 # given that both dhea and cortisol are very right skewed (see above) we have to do log-transform
 # have checked before that both outcomes don't have zero
+# use cleaned version
 data <- data %>%
-  mutate(log_cort = log(cortisol), log_dhea = log(dhea))
+  mutate(log_cort = log(cortisol_cleaned), log_dhea = log(dhea_cleaned))
 
 ggplot(data, aes(x = log_cort)) +
   geom_histogram(bins = 30, na.rm = TRUE) +
@@ -208,6 +269,16 @@ ggplot(data, aes(x = log_dhea)) +
 
 
 ```{r}
+data_q3 <- data %>%
+  mutate(
+    t1_30 = if_else(booklet <= 30, cap, 30),
+    t2_30 = if_else(booklet > 30, cap - 30, 0))
+
+# exclude 3037 from dhea analysis as it has too many outliers
+data_q3_dhea <- data_q3 %>%
+  filter(id != 3037)
+
+
 ggplot(data, aes(x = log(booklet + 1), y = log_cort, group = id)) +
   geom_line(alpha = 0.3, color = "grey50") +
   geom_smooth(aes(group = 1), method = "gam", formula = y ~ s(x, bs="cs"), se = TRUE, color="blue") +
@@ -223,7 +294,7 @@ ggplot(data, aes(x = log(booklet + 1), y = log_cort, group = id)) +
 ```
 
 ```{r}
-ggplot(data, aes(x = log(booklet + 1), y = log_dhea, group = id)) +
+ggplot(data_q3_dhea, aes(x = log(booklet + 1), y = log_dhea, group = id)) +
   geom_line(alpha = 0.3, color = "grey50") +
   geom_smooth(aes(group = 1), method = "gam", formula = y ~ s(x, bs="cs"), se = TRUE, color="blue") +
   scale_x_continuous(
@@ -237,33 +308,16 @@ ggplot(data, aes(x = log(booklet + 1), y = log_dhea, group = id)) +
   theme_minimal()
 ```
 
+
 ```{r}
-data_q3 <- data %>%
-  mutate(
-    t1 = if_else(booklet <= 10, cap, 10),
-    t2 = if_else(booklet > 10, cap - 10, 0))
-
-# Cortisol
-cort_fit <- lmer(log_cort ~ t1 + t2 + (1 | id), data = data_q3)
-summary(cort_fit)
-
-# DHEA
-dhea_fit <- lmer(log_dhea ~ t1 + t2 + (1 | id), data = data_q3)
-summary(dhea_fit)
-```
-```{r}
-data_q3 <- data %>%
-  mutate(
-    t1_30 = if_else(booklet <= 30, cap, 30),
-    t2_30 = if_else(booklet > 30, cap - 30, 0))
-
 # Cortisol
 cort_fit_30 <- lmer(log_cort ~ t1_30 + t2_30 + (1 | id), data = data_q3)
 summary(cort_fit_30)
 
 # DHEA
-dhea_fit_30 <- lmer(log_dhea ~ t1_30 + t2_30 + (1 | id), data = data_q3)
+dhea_fit_30 <- lmer(log_dhea ~ t1_30 + t2_30 + (1 | id), data = data_q3_dhea)
 summary(dhea_fit_30)
 ```
+
 
 
