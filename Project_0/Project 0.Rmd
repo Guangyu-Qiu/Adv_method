@@ -17,6 +17,7 @@ library(patchwork)
 
 
 ```{r}
+# Data is located in the same folder as this Rmd: "Project0_Clean_v2.csv"
 data <- read.csv("Project0_Clean_v2.csv") %>%
   transmute(
     id = SubjectID,
