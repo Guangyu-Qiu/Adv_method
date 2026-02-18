@@ -1,0 +1,243 @@
+---
+title: "Project1"
+author: "Guangyu Qiu"
+date: "2026-01-26"
+output: pdf_document
+---
+```{r}
+data1 <- read.csv(here("Project_1","Data", "hiv_6624_final.csv"))%>% clean_names()
+length(unique(data1$newid))
+```
+
+```{r}
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(mgcv)
+library(broom.mixed)
+library(knitr)
+library(kableExtra)
+library(patchwork)
+library(here)
+library(naniar)
+library(janitor)
+library(skimr)
+library(gtsummary)
+```
+
+
+```{r}
+# data import, rename and recode some variables
+data <- read.csv(here("Project_1","Data", "hiv_6624_final.csv")) %>% clean_names() %>%
+  filter(years %in% c(0,2)) %>%
+  group_by(newid) %>%
+  filter(all(c(0,2) %in% years)) %>%
+  ungroup() %>%
+  transmute(
+    years,
+    id = newid,
+    drugs = hard_drugs,
+    vload,
+    log_vload = log(vload),
+    log10_vload = log10(vload),
+    leu3n = ifelse(leu3n < 0, NA_real_, leu3n),
+    phys = agg_phys,
+    ment = agg_ment,
+    age,
+    race = case_when(
+      race %in% c(2,4,8) ~ "Hispanic",
+      race == 1 ~ "White",
+      race == 3 ~ "Black",
+      race %in% c(5,6,7) ~ "Other",
+      TRUE ~ NA_character_
+    ),
+    edu = case_when(
+      educbas %in% c(1,2,3) ~ "HighSchool",
+      educbas %in% c(4,5) ~ "College",
+      educbas %in% c(6,7) ~ "Graduate",
+      TRUE ~ NA_character_
+    ),
+    bmi = case_when(
+      bmi == -1 | bmi > 100 ~ NA_character_,
+      bmi < 18.5 ~ "Underweight",
+      bmi >= 18.5 & bmi <= 24.9 ~ "Normal",
+      bmi > 24.9 ~ "Overweight",
+      TRUE ~ NA_character_
+    ),
+    depression = ifelse(cesd == -1, NA_real_, cesd),
+    alcohol = dkgrp,
+    smoke
+  )
+
+#  pivot wider
+data_wide <- data %>%
+  pivot_wider(
+    id_cols = id,
+    names_from = years,
+    values_from = c(log_vload, log10_vload, leu3n, phys, ment,
+                    drugs, age, race, edu,
+                    bmi, depression, alcohol, smoke))
+# outcome we use
+data_wide <- data_wide %>%
+  mutate(
+    log_vload_change = log_vload_2 - log_vload_0,
+    log10_vload_change = log10_vload_2 - log10_vload_0,
+    leu3n_change = leu3n_2 - leu3n_0,
+    phys_change = phys_2 - phys_0,
+    ment_change = ment_2 - ment_0)
+
+```
+
+
+
+# missingness check
+```{r}
+outcomes <- c("log10_vload_change","leu3n_change","phys_change","ment_change")
+predictors <- c("drugs_0","age_0","race_0","edu_0","bmi_0",
+                "depression_0","alcohol_0","smoke_0")
+
+vars <- c(outcomes, predictors)
+
+missing_summary <- data_wide %>%
+  summarise(
+    across(
+      all_of(vars),
+      list(
+        missing_n   = ~ sum(is.na(.)),
+        missing_pct = ~ mean(is.na(.))
+      )
+    )
+  ) %>%
+  pivot_longer(
+    everything(),
+    names_to = c("variable", ".value"),
+    names_sep = "_missing_"
+  )
+
+print(missing_summary)
+```
+
+```{r}
+sample_sizes <- sapply(outcomes, function(outcome){
+  sum(complete.cases(data_wide[, c(outcome, predictors)]))
+})
+
+sample_sizes <- tibble(outcome = outcomes, n_complete = sample_sizes)
+print(sample_sizes)
+```
+
+
+# range check
+```{r}
+range_check <- data_wide %>%
+  summarise(across(c(log10_vload_0, log10_vload_2, leu3n_0, leu3n_2,
+                     phys_0, phys_2, ment_0, ment_2,
+                     log10_vload_change, leu3n_change, 
+                     phys_change, ment_change, age_0),
+                   list(min = ~min(., na.rm = TRUE),
+                        max = ~max(., na.rm = TRUE)))) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "variable_stat",
+    values_to = "value"
+  ) %>%
+  mutate(
+    stat = ifelse(grepl("_min$", variable_stat), "min", "max"),
+    variable = sub("_(min|max)$", "", variable_stat)
+  ) %>%
+  select(variable, stat, value) %>%
+  pivot_wider(
+    names_from = stat,
+    values_from = value
+  )
+
+print(range_check)
+```
+
+```{r}
+outcomes <- c("log10_vload_change","leu3n_change","phys_change","ment_change")
+outcome_labels <- c(
+  "log10_vload_change" = "log10(Viral Load) Change",
+  "leu3n_change" = "CD4+ T Cell Count Change",
+  "phys_change" = "Aggregate Physical QoL Score Change",
+  "ment_change" = "Aggregate Mental QoL Score Change"
+)
+
+plots <- lapply(outcomes, function(var){
+  ggplot(data_wide, aes_string(x = var)) +
+    geom_histogram(bins = 30, fill = "#2c7fb8", color = "black", alpha = 0.7) +
+    theme_minimal() +
+    labs(title = outcome_labels[var], x = "Change (2y - baseline)", y = "Count")
+})
+
+combined_plot <- (plots[[1]] | plots[[2]]) / (plots[[3]] | plots[[4]])
+
+print(combined_plot)
+ggsave(filename = here("Project_1","Report","outcome_hist_2x2.png"),
+       plot = combined_plot, width = 10, height = 8)
+```
+```{r}
+qqnorm(data_wide$log10_vload_change); qqline(data_wide$log10_vload_change)
+```
+# Table 1
+```{r}
+var_labels <- list(
+  age_0 = "Age (years)",
+  race_0 = "Race/Ethnicity",
+  edu_0 = "Education",
+  bmi_0 = "BMI category",
+  depression_0 = "CESD score",
+  alcohol_0 = "Alcohol use",
+  smoke_0 = "Smoking",
+  log10_vload_change = "Change in log10 Viral Load",
+  leu3n_change = "Change in CD4 count",
+  phys_change = "Change in Physical Health",
+  ment_change = "Change in Mental Health"
+)
+
+table1 <- data_wide %>%
+  select(drugs_0, age_0, race_0, edu_0, bmi_0,
+         depression_0, alcohol_0, smoke_0,
+         log10_vload_change, leu3n_change, phys_change, ment_change) %>%
+  tbl_summary(
+    by = drugs_0,
+    label = var_labels,
+    missing = "ifany",
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    type = list(
+      age_0 ~ "continuous",
+      depression_0 ~ "continuous",
+      log10_vload_change ~ "continuous",
+      leu3n_change ~ "continuous",
+      phys_change ~ "continuous",
+      ment_change ~ "continuous"
+    )
+  ) %>%
+  add_overall(last = TRUE) %>%
+  bold_labels()
+
+table1
+```
+
+
+# before recode baseline: check frequency
+```{r}
+# no need to run this again
+table_with_percent <- function(var){
+  tab <- table(data[[var]], useNA = "ifany")
+  prop <- prop.table(tab) * 100
+  result <- cbind(Frequency = tab,
+                  Percent = round(prop, 2))
+  return(result)
+}
+
+table_with_percent("drugs")
+table_with_percent("race")
+table_with_percent("edu")
+table_with_percent("income")
+```
+
+
