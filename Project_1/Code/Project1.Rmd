@@ -4,10 +4,6 @@ author: "Guangyu Qiu"
 date: "2026-01-26"
 output: pdf_document
 ---
-```{r}
-data1 <- read.csv(here("Project_1","Data", "hiv_6624_final.csv"))%>% clean_names()
-length(unique(data1$newid))
-```
 
 ```{r}
 library(tidyverse)
@@ -26,6 +22,7 @@ library(gtsummary)
 ```
 
 
+
 ```{r}
 # data import, rename and recode some variables
 data <- read.csv(here("Project_1","Data", "hiv_6624_final.csv")) %>% clean_names() %>%
@@ -38,23 +35,19 @@ data <- read.csv(here("Project_1","Data", "hiv_6624_final.csv")) %>% clean_names
     id = newid,
     drugs = hard_drugs,
     vload,
-    log_vload = log(vload),
     log10_vload = log10(vload),
     leu3n = ifelse(leu3n < 0, NA_real_, leu3n),
     phys = agg_phys,
     ment = agg_ment,
     age,
     race = case_when(
-      race %in% c(2,4,8) ~ "Hispanic",
-      race == 1 ~ "White",
-      race == 3 ~ "Black",
-      race %in% c(5,6,7) ~ "Other",
+      race == 1 ~ "Non-Hispanic White",
+      race %in% c(2,3,4,5,6,7,8) ~ "Other",
       TRUE ~ NA_character_
     ),
     edu = case_when(
-      educbas %in% c(1,2,3) ~ "HighSchool",
-      educbas %in% c(4,5) ~ "College",
-      educbas %in% c(6,7) ~ "Graduate",
+      educbas %in% c(1,2,3,4) ~ "No college degree or lower",
+      educbas %in% c(5,6,7) ~ "College or higher",
       TRUE ~ NA_character_
     ),
     bmi = case_when(
@@ -64,8 +57,13 @@ data <- read.csv(here("Project_1","Data", "hiv_6624_final.csv")) %>% clean_names
       bmi > 24.9 ~ "Overweight",
       TRUE ~ NA_character_
     ),
-    depression = ifelse(cesd == -1, NA_real_, cesd),
-    alcohol = dkgrp,
+    adherence = case_when(
+      adh == 1 ~ "100%",
+      adh == 2 ~ "95-99%",
+      adh == 3 ~ "75-94%",
+      adh == 4 ~ "<75%",
+      TRUE ~ NA_character_
+    ),
     smoke
   )
 
@@ -74,13 +72,12 @@ data_wide <- data %>%
   pivot_wider(
     id_cols = id,
     names_from = years,
-    values_from = c(log_vload, log10_vload, leu3n, phys, ment,
+    values_from = c(log10_vload, leu3n, phys, ment,
                     drugs, age, race, edu,
-                    bmi, depression, alcohol, smoke))
+                    bmi, adherence, smoke))
 # outcome we use
 data_wide <- data_wide %>%
   mutate(
-    log_vload_change = log_vload_2 - log_vload_0,
     log10_vload_change = log10_vload_2 - log10_vload_0,
     leu3n_change = leu3n_2 - leu3n_0,
     phys_change = phys_2 - phys_0,
