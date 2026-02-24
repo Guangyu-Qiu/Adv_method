@@ -33,7 +33,7 @@ data <- read.csv(here("Project_1","Data", "hiv_6624_final.csv")) %>% clean_names
   transmute(
     years,
     id = newid,
-    drugs = hard_drugs,
+    drugs = ifelse(hard_drugs == 0, "No", "Yes"),
     vload,
     log10_vload = log10(vload),
     leu3n = ifelse(leu3n < 0, NA_real_, leu3n),
@@ -64,7 +64,11 @@ data <- read.csv(here("Project_1","Data", "hiv_6624_final.csv")) %>% clean_names
       adh == 4 ~ "<75%",
       TRUE ~ NA_character_
     ),
-    smoke
+    smoke = case_when(
+      smoke %in% c(1,2) ~ "Non-current",
+      smoke == 3 ~ "Current smoker",
+      TRUE ~ NA_character_
+    ),
   )
 
 #  pivot wider
@@ -91,7 +95,7 @@ data_wide <- data_wide %>%
 ```{r}
 outcomes <- c("log10_vload_change","leu3n_change","phys_change","ment_change")
 predictors <- c("drugs_0","age_0","race_0","edu_0","bmi_0",
-                "depression_0","alcohol_0","smoke_0")
+                "adherence_2","smoke_0")
 
 vars <- c(outcomes, predictors)
 
@@ -115,22 +119,22 @@ print(missing_summary)
 ```
 
 ```{r}
-sample_sizes <- sapply(outcomes, function(outcome){
-  sum(complete.cases(data_wide[, c(outcome, predictors)]))
-})
-
-sample_sizes <- tibble(outcome = outcomes, n_complete = sample_sizes)
-print(sample_sizes)
+# sample size check
+all_vars <- c(outcomes, predictors)
+n_complete_all <- sum(complete.cases(data_wide[, all_vars]))
+n_complete_all
 ```
+```{r}
+data_final <- data_wide %>%
+  filter(complete.cases(across(all_vars)))
+```
+
 
 
 # range check
 ```{r}
-range_check <- data_wide %>%
-  summarise(across(c(log10_vload_0, log10_vload_2, leu3n_0, leu3n_2,
-                     phys_0, phys_2, ment_0, ment_2,
-                     log10_vload_change, leu3n_change, 
-                     phys_change, ment_change, age_0),
+range_check <- data_final %>%
+  summarise(across(c(log10_vload_0, log10_vload_2, leu3n_0, leu3n_2,phys_0, phys_2, ment_0, ment_2,log10_vload_change, leu3n_change,phys_change, ment_change, age_0),
                    list(min = ~min(., na.rm = TRUE),
                         max = ~max(., na.rm = TRUE)))) %>%
   pivot_longer(
@@ -161,7 +165,7 @@ outcome_labels <- c(
 )
 
 plots <- lapply(outcomes, function(var){
-  ggplot(data_wide, aes_string(x = var)) +
+  ggplot(data_final, aes_string(x = var)) +
     geom_histogram(bins = 30, fill = "#2c7fb8", color = "black", alpha = 0.7) +
     theme_minimal() +
     labs(title = outcome_labels[var], x = "Change (2y - baseline)", y = "Count")
@@ -173,9 +177,7 @@ print(combined_plot)
 ggsave(filename = here("Project_1","Report","outcome_hist_2x2.png"),
        plot = combined_plot, width = 10, height = 8)
 ```
-```{r}
-qqnorm(data_wide$log10_vload_change); qqline(data_wide$log10_vload_change)
-```
+
 # Table 1
 ```{r}
 var_labels <- list(
@@ -183,18 +185,17 @@ var_labels <- list(
   race_0 = "Race/Ethnicity",
   edu_0 = "Education",
   bmi_0 = "BMI category",
-  depression_0 = "CESD score",
-  alcohol_0 = "Alcohol use",
   smoke_0 = "Smoking",
+  adherence_2 = "Adherence to Treatment at Year 2",
   log10_vload_change = "Change in log10 Viral Load",
   leu3n_change = "Change in CD4 count",
   phys_change = "Change in Physical Health",
   ment_change = "Change in Mental Health"
 )
 
-table1 <- data_wide %>%
+table1 <- data_final %>%
   select(drugs_0, age_0, race_0, edu_0, bmi_0,
-         depression_0, alcohol_0, smoke_0,
+         smoke_0, adherence_2,
          log10_vload_change, leu3n_change, phys_change, ment_change) %>%
   tbl_summary(
     by = drugs_0,
@@ -206,7 +207,6 @@ table1 <- data_wide %>%
     ),
     type = list(
       age_0 ~ "continuous",
-      depression_0 ~ "continuous",
       log10_vload_change ~ "continuous",
       leu3n_change ~ "continuous",
       phys_change ~ "continuous",
@@ -220,21 +220,84 @@ table1
 ```
 
 
-# before recode baseline: check frequency
+# Canned approach linear regression
 ```{r}
-# no need to run this again
-table_with_percent <- function(var){
-  tab <- table(data[[var]], useNA = "ifany")
-  prop <- prop.table(tab) * 100
-  result <- cbind(Frequency = tab,
-                  Percent = round(prop, 2))
-  return(result)
-}
+vload_adh_fit <- lm(
+  log10_vload_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 +
+    adherence_2 + smoke_0,
+  data = data_final
+)
 
-table_with_percent("drugs")
-table_with_percent("race")
-table_with_percent("edu")
-table_with_percent("income")
+summary(vload_adh_fit)
+```
+```{r}
+vload_fit <- lm(
+  log10_vload_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 + smoke_0,
+  data = data_final
+)
+
+summary(vload_fit)
+```
+```{r}
+leu3n_adh_fit <- lm(
+  leu3n_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 +
+    adherence_2 + smoke_0,
+  data = data_final
+)
+
+summary(leu3n_adh_fit)
 ```
 
+```{r}
+leu3n_fit <- lm(
+  leu3n_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 + smoke_0,
+  data = data_final
+)
 
+summary(leu3n_fit)
+```
+```{r}
+phys_adh_fit <- lm(
+  phys_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 +
+    adherence_2 + smoke_0,
+  data = data_final
+)
+
+summary(phys_adh_fit)
+```
+
+```{r}
+phys_fit <- lm(
+  phys_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 + smoke_0,
+  data = data_final
+)
+
+summary(phys_fit)
+```
+
+```{r}
+ment_adh_fit <- lm(
+  ment_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 +
+    adherence_2 + smoke_0,
+  data = data_final
+)
+
+summary(ment_adh_fit)
+```
+```{r}
+ment_fit <- lm(
+  ment_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 + smoke_0,
+  data = data_final
+)
+
+summary(ment_fit)
+```
+# Stan approach
