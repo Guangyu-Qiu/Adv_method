@@ -22,7 +22,7 @@ library(gtsummary)
 library(cmdstanr)
 library(bayesplot)
 library(posterior) # trace plot
-library(brms)
+library(loo)
 ```
 
 
@@ -225,77 +225,8 @@ table1
 ```
 
 
-# Canned approach linear regression
 
-```{r}
-vload_fit <- lm(
-  log10_vload_change ~
-    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 + smoke_0,
-  data = data_final
-)
 
-summary(vload_fit)
-```
-```{r}
-leu3n_adh_fit <- lm(
-  leu3n_change ~
-    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 +
-    adherence_2 + smoke_0,
-  data = data_final
-)
-
-summary(leu3n_adh_fit)
-```
-
-```{r}
-leu3n_fit <- lm(
-  leu3n_change ~
-    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 + smoke_0,
-  data = data_final
-)
-
-summary(leu3n_fit)
-```
-```{r}
-phys_adh_fit <- lm(
-  phys_change ~
-    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 +
-    adherence_2 + smoke_0,
-  data = data_final
-)
-
-summary(phys_adh_fit)
-```
-
-```{r}
-phys_fit <- lm(
-  phys_change ~
-    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 + smoke_0,
-  data = data_final
-)
-
-summary(phys_fit)
-```
-
-```{r}
-ment_adh_fit <- lm(
-  ment_change ~
-    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 +
-    adherence_2 + smoke_0,
-  data = data_final
-)
-
-summary(ment_adh_fit)
-```
-```{r}
-ment_fit <- lm(
-  ment_change ~
-    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 + smoke_0,
-  data = data_final
-)
-
-summary(ment_fit)
-```
 # Stan data and model
 ```{r}
 data_final <- data_final %>%
@@ -490,7 +421,10 @@ fit_stan_vload <- linear_model$sample(
 fit_stan_vload$summary()
 ```
 ```{r}
-DIC(fit_stan_vload)
+log_lik_vload_adh <- fit_stan_vload_adh$draws("log_lik", format = "matrix")
+log_lik_vload <- fit_stan_vload$draws("log_lik", format = "matrix")
+waic(log_lik_vload_adh)
+waic(log_lik_vload)
 ```
 
 ```{r}
@@ -502,4 +436,159 @@ vload_adh_fit <- lm(
 )
 
 summary(vload_adh_fit)
+```
+
+```{r}
+vload_fit <- lm(
+  log10_vload_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 + smoke_0,
+  data = data_final
+)
+
+summary(vload_fit)
+```
+# T cell count
+```{r}
+fit_stan_leu3n_adh <- linear_adh_model$sample(
+  data = stan_data_leu3n_adh,
+  seed = 648,
+  chains = 4,
+  iter_warmup = 2000,
+  iter_sampling = 10000,
+  parallel_chains = 4
+)
+
+fit_stan_leu3n_adh$summary()
+```
+
+```{r}
+fit_stan_leu3n <- linear_model$sample(
+  data = stan_data_leu3n,
+  seed = 648,
+  chains = 4,
+  iter_warmup = 2000,
+  iter_sampling = 10000,
+  parallel_chains = 4
+)
+
+fit_stan_leu3n$summary()
+```
+
+
+
+```{r}
+leu3n_adh_fit <- lm(
+  leu3n_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 +
+    adherence_2 + smoke_0,
+  data = data_final
+)
+
+summary(leu3n_adh_fit)
+```
+
+```{r}
+leu3n_fit <- lm(
+  leu3n_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 + smoke_0,
+  data = data_final
+)
+
+summary(leu3n_fit)
+```
+```{r}
+log_lik_leu3n_adh <- fit_stan_leu3n_adh$draws("log_lik", format = "matrix")
+log_lik_leu3n <- fit_stan_leu3n$draws("log_lik", format = "matrix")
+waic(log_lik_leu3n_adh)
+waic(log_lik_leu3n)
+```
+# physical score
+
+```{r}
+fit_stan_phys_adh <- linear_adh_model$sample(
+  data = stan_data_phys_adh,
+  seed = 648,
+  chains = 4,
+  iter_warmup = 2000,
+  iter_sampling = 10000,
+  parallel_chains = 4
+)
+
+fit_stan_phys_adh$summary()
+```
+
+```{r}
+fit_stan_phys <- linear_model$sample(
+  data = stan_data_phys,
+  seed = 648,
+  chains = 4,
+  iter_warmup = 2000,
+  iter_sampling = 10000,
+  parallel_chains = 4
+)
+
+fit_stan_phys$summary()
+```
+
+```{r}
+log_lik_phys_adh <- fit_stan_phys_adh$draws("log_lik", format = "matrix")
+log_lik_phys <- fit_stan_phys$draws("log_lik", format = "matrix")
+waic(log_lik_phys_adh)
+waic(log_lik_phys)
+```
+
+```{r}
+phys_adh_fit <- lm(
+  phys_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 +
+    adherence_2 + smoke_0,
+  data = data_final
+)
+
+summary(phys_adh_fit)
+```
+
+```{r}
+phys_fit <- lm(
+  phys_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 + smoke_0,
+  data = data_final
+)
+
+summary(phys_fit)
+```
+
+# mental score
+```{r}
+fit_stan_ment_adh <- linear_adh_model$sample(
+  data = stan_data_ment_adh,
+  seed = 648,
+  chains = 4,
+  iter_warmup = 2000,
+  iter_sampling = 10000,
+  parallel_chains = 4
+)
+
+fit_stan_ment_adh$summary()
+```
+
+
+```{r}
+ment_adh_fit <- lm(
+  ment_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 +
+    adherence_2 + smoke_0,
+  data = data_final
+)
+
+summary(ment_adh_fit)
+```
+```{r}
+ment_fit <- lm(
+  ment_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 + smoke_0,
+  data = data_final
+)
+
+summary(ment_fit)
 ```
