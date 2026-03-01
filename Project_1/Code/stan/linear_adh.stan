@@ -65,3 +65,25 @@ model {
     );
   }
 }
+
+generated quantities {
+  vector[N] log_lik;  // for WAIC
+
+  for (n in 1:N) {
+    log_lik[n] = normal_lpdf(
+      y[n] | 
+      beta_0
+      + beta_drugs_0 * drugs_0[n]
+      + beta_age_0 * age_0[n]
+      + beta_race_0 * race_0[n]
+      + beta_edu_0 * edu_0[n]
+      + beta_bmi_overweight * bmi_overweight[n]
+      + beta_bmi_underweight * bmi_underweight[n]
+      + beta_adherence_95 * adherence_95[n]
+      + beta_adherence_75 * adherence_75[n]
+      + beta_adherence_less * adherence_less[n]
+      + beta_smoke_0 * smoke_0[n],
+      sigma
+    );
+  }
+}

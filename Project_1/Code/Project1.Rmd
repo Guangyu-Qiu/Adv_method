@@ -21,6 +21,8 @@ library(skimr)
 library(gtsummary)
 library(cmdstanr)
 library(bayesplot)
+library(posterior) # trace plot
+library(brms)
 ```
 
 
@@ -126,6 +128,7 @@ all_vars <- c(outcomes, predictors)
 n_complete_all <- sum(complete.cases(data_wide[, all_vars]))
 n_complete_all
 ```
+
 ```{r}
 data_final <- data_wide %>%
   filter(complete.cases(across(all_vars)))
@@ -223,16 +226,7 @@ table1
 
 
 # Canned approach linear regression
-```{r}
-vload_adh_fit <- lm(
-  log10_vload_change ~
-    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 +
-    adherence_2 + smoke_0,
-  data = data_final
-)
 
-summary(vload_adh_fit)
-```
 ```{r}
 vload_fit <- lm(
   log10_vload_change ~
@@ -307,141 +301,131 @@ summary(ment_fit)
 data_final <- data_final %>%
   mutate(
     drugs = ifelse(drugs_0 == "Yes", 1, 0),
-    race_other = ifelse(race_0 == "Other", 1, 0),
-    edu_college = ifelse(edu_0 == "College or higher", 1, 0),
-    bmi_overweight  = ifelse(bmi_0 == "Overweight", 1, 0),
-    bmi_underweight = ifelse(bmi_0 == "Underweight", 1, 0),
-    adherence_95   = ifelse(adherence_0 == "95-99%", 1, 0),
-    adherence_75   = ifelse(adherence_0 == "75-94%", 1, 0),
-    adherence_less = ifelse(adherence_0 == "<75%", 1, 0),
-    smoke_current = ifelse(smoke_0 == "Current smoker", 1, 0))
-
-linear_model <- cmdstan_model(here("Project_1","Code","stan","linear.stan"))
-linear_adh_model <- cmdstan_model(here("Project_1","Code","stan","linear_adh.stan"))
-
-data_final <- data_final %>%
-  mutate(
-    drugs_0 = ifelse(drugs_0 == "Yes", 1, 0),
-    race_0 = ifelse(race_0 == "Other", 1, 0),
-    edu_0 = ifelse(edu_0 == "College or higher", 1, 0),
+    race = ifelse(race_0 == "Other", 1, 0),
+    edu = ifelse(edu_0 == "College or higher", 1, 0),
     bmi_overweight  = ifelse(bmi_0 == "Overweight", 1, 0),
     bmi_underweight = ifelse(bmi_0 == "Underweight", 1, 0),
     adherence_95   = ifelse(adherence_2 == "95-99%", 1, 0),
     adherence_75   = ifelse(adherence_2 == "75-94%", 1, 0),
     adherence_less = ifelse(adherence_2 == "<75%", 1, 0),
-    smoke_0 = ifelse(smoke_0 == "Current smoker", 1, 0)
-  )
+    smoke = ifelse(smoke_0 == "Current smoker", 1, 0))
+
+linear_model <- cmdstan_model(here("Project_1","Code","stan","linear.stan"))
+
+linear_adh_model <- cmdstan_model(here("Project_1","Code","stan","linear_adh.stan"))
+
+
 
 stan_data_vload_adh <- list(
   N = nrow(data_final),
   y = data_final$log10_vload_change,
-  drugs_0 = data_final$drugs_0,
+  drugs_0 = data_final$drugs,
   age_0 = data_final$age_0,
-  race_0 = data_final$race_0,
-  edu_0 = data_final$edu_0,
+  race_0 = data_final$race,
+  edu_0 = data_final$edu,
   bmi_overweight  = data_final$bmi_overweight,
   bmi_underweight = data_final$bmi_underweight,
   adherence_95   = data_final$adherence_95,
   adherence_75   = data_final$adherence_75,
   adherence_less = data_final$adherence_less,
-  smoke_0 = data_final$smoke_0
+  smoke_0 = data_final$smoke
 )
 
 stan_data_vload <- list(
   N = nrow(data_final),
   y = data_final$log10_vload_change,
-  drugs_0 = data_final$drugs_0,
+  drugs_0 = data_final$drugs,
   age_0 = data_final$age_0,
-  race_0 = data_final$race_0,
-  edu_0 = data_final$edu_0,
+  race_0 = data_final$race,
+  edu_0 = data_final$edu,
   bmi_overweight  = data_final$bmi_overweight,
   bmi_underweight = data_final$bmi_underweight,
-  smoke_0 = data_final$smoke_0
+  smoke_0 = data_final$smoke
 )
 
 stan_data_leu3n_adh <- list(
   N = nrow(data_final),
   y = data_final$leu3n_change,
-  drugs_0 = data_final$drugs_0,
+  drugs_0 = data_final$drugs,
   age_0 = data_final$age_0,
-  race_0 = data_final$race_0,
-  edu_0 = data_final$edu_0,
+  race_0 = data_final$race,
+  edu_0 = data_final$edu,
   bmi_overweight  = data_final$bmi_overweight,
   bmi_underweight = data_final$bmi_underweight,
   adherence_95   = data_final$adherence_95,
   adherence_75   = data_final$adherence_75,
   adherence_less = data_final$adherence_less,
-  smoke_0 = data_final$smoke_0
+  smoke_0 = data_final$smoke
 )
 
 stan_data_leu3n <- list(
   N = nrow(data_final),
   y = data_final$leu3n_change,
-  drugs_0 = data_final$drugs_0,
+  drugs_0 = data_final$drugs,
   age_0 = data_final$age_0,
-  race_0 = data_final$race_0,
-  edu_0 = data_final$edu_0,
+  race_0 = data_final$race,
+  edu_0 = data_final$edu,
   bmi_overweight  = data_final$bmi_overweight,
   bmi_underweight = data_final$bmi_underweight,
-  smoke_0 = data_final$smoke_0
+  smoke_0 = data_final$smoke
 )
 
 stan_data_phys_adh <- list(
   N = nrow(data_final),
   y = data_final$phys_change,
-  drugs_0 = data_final$drugs_0,
+  drugs_0 = data_final$drugs,
   age_0 = data_final$age_0,
-  race_0 = data_final$race_0,
-  edu_0 = data_final$edu_0,
+  race_0 = data_final$race,
+  edu_0 = data_final$edu,
   bmi_overweight  = data_final$bmi_overweight,
   bmi_underweight = data_final$bmi_underweight,
   adherence_95   = data_final$adherence_95,
   adherence_75   = data_final$adherence_75,
   adherence_less = data_final$adherence_less,
-  smoke_0 = data_final$smoke_0
+  smoke_0 = data_final$smoke
 )
 
 stan_data_phys <- list(
   N = nrow(data_final),
   y = data_final$phys_change,
-  drugs_0 = data_final$drugs_0,
+  drugs_0 = data_final$drugs,
   age_0 = data_final$age_0,
-  race_0 = data_final$race_0,
-  edu_0 = data_final$edu_0,
+  race_0 = data_final$race,
+  edu_0 = data_final$edu,
   bmi_overweight  = data_final$bmi_overweight,
   bmi_underweight = data_final$bmi_underweight,
-  smoke_0 = data_final$smoke_0
+  smoke_0 = data_final$smoke
 )
 
 stan_data_ment_adh <- list(
   N = nrow(data_final),
   y = data_final$ment_change,
-  drugs_0 = data_final$drugs_0,
+  drugs_0 = data_final$drugs,
   age_0 = data_final$age_0,
-  race_0 = data_final$race_0,
-  edu_0 = data_final$edu_0,
+  race_0 = data_final$race,
+  edu_0 = data_final$edu,
   bmi_overweight  = data_final$bmi_overweight,
   bmi_underweight = data_final$bmi_underweight,
   adherence_95   = data_final$adherence_95,
   adherence_75   = data_final$adherence_75,
   adherence_less = data_final$adherence_less,
-  smoke_0 = data_final$smoke_0
+  smoke_0 = data_final$smoke
 )
 
 stan_data_ment <- list(
   N = nrow(data_final),
   y = data_final$ment_change,
-  drugs_0 = data_final$drugs_0,
+  drugs_0 = data_final$drugs,
   age_0 = data_final$age_0,
-  race_0 = data_final$race_0,
-  edu_0 = data_final$edu_0,
+  race_0 = data_final$race,
+  edu_0 = data_final$edu,
   bmi_overweight  = data_final$bmi_overweight,
   bmi_underweight = data_final$bmi_underweight,
-  smoke_0 = data_final$smoke_0
+  smoke_0 = data_final$smoke
 )
 ```
 
-# Run stan model
+# Stan model template
 ```{r}
 # These are the data for all 8 models
 # stan_data_vload_adh
@@ -457,7 +441,7 @@ stan_data_ment <- list(
 # linear_adh_model
 # linear_model
 
-fit_stan <- linear_adh_model$sample(
+fit_stan_adh <- linear_adh_model$sample(
   data = stan_data_vload_adh,
   seed = 648,
   chains = 4,
@@ -466,12 +450,56 @@ fit_stan <- linear_adh_model$sample(
   parallel_chains = 4
 )
 
-fit_stan$summary()
+fit_stan_adh$summary()
 ```
 
 ```{r}
-posterior_matrix <- fit_stan$draws(format = "matrix")
+posterior_matrix <- fit_stan_adh$draws(format = "matrix")
 posterior_matrix_params <- posterior_matrix[, !colnames(posterior_matrix) %in% "lp__"]
 mcmc_intervals(posterior_matrix_params, prob = 0.95)
 ```
+```{r}
+posterior <- as_draws_array(fit_stan_adh$draws())
+mcmc_trace(posterior, pars = c("beta_drugs_0"))
+```
 
+# virus load
+```{r}
+fit_stan_vload_adh <- linear_adh_model$sample(
+  data = stan_data_vload_adh,
+  seed = 648,
+  chains = 4,
+  iter_warmup = 2000,
+  iter_sampling = 10000,
+  parallel_chains = 4
+)
+
+fit_stan_vload_adh$summary()
+```
+
+```{r}
+fit_stan_vload <- linear_model$sample(
+  data = stan_data_vload,
+  seed = 648,
+  chains = 4,
+  iter_warmup = 2000,
+  iter_sampling = 10000,
+  parallel_chains = 4
+)
+
+fit_stan_vload$summary()
+```
+```{r}
+DIC(fit_stan_vload)
+```
+
+```{r}
+vload_adh_fit <- lm(
+  log10_vload_change ~
+    drugs_0 + age_0 + race_0 + edu_0 + bmi_0 +
+    adherence_2 + smoke_0,
+  data = data_final
+)
+
+summary(vload_adh_fit)
+```
