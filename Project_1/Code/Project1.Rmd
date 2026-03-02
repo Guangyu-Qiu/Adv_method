@@ -211,6 +211,8 @@ table1 <- data_final %>%
       all_continuous() ~ "{mean} ({sd})",
       all_categorical() ~ "{n} ({p}%)"
     ),
+    digits = list(
+      all_continuous() ~ 2),
     type = list(
       age_0 ~ "continuous",
       log10_vload_change ~ "continuous",
@@ -225,7 +227,7 @@ table1 <- data_final %>%
       all_categorical() ~ "chisq.test"
     )
   ) %>%
-  add_overall(last = TRUE) %>%
+  #add_overall(last = TRUE) %>%
   bold_labels()
 
 table1
@@ -818,13 +820,27 @@ posterior_p_clinical <- function(fit, model_name, outcome) {
     outcome == "log10_vload_change" ~ mean(draws < cutoff),
     TRUE ~ mean(draws > cutoff))
   
+  est <- mean(draws)
+  lower <- quantile(draws, 0.025)
+  upper <- quantile(draws, 0.975)
+
+  est_fmt <- dplyr::case_when(
+    outcome == "log10_vload_change" ~ sprintf("%.3f", est),
+    outcome == "leu3n_change" ~ sprintf("%.1f", est),
+    outcome %in% c("phys_change", "ment_change") ~ sprintf("%.2f", est)
+  )
+  
+  ci_fmt <- dplyr::case_when(
+    outcome == "log10_vload_change" ~ sprintf("(%.3f, %.3f)", lower, upper),
+    outcome == "leu3n_change" ~ sprintf("(%.1f, %.1f)", lower, upper),
+    outcome %in% c("phys_change", "ment_change") ~ sprintf("(%.2f, %.2f)", lower, upper)
+  )
+
   tibble(
     Model = model_name,
     Outcome = outcome,
-    Mean = mean(draws),
-    Lower = quantile(draws, 0.025),
-    Upper = quantile(draws, 0.975),
-    Post_Prob_ClinicallyMeaningful = post_prob
+    Estimate_CI = paste0(est_fmt, " ", ci_fmt),
+    Post_Prob_ClinicallyMeaningful = sprintf("%.3f", post_prob)
   )
 }
 
@@ -832,8 +848,13 @@ posterior_results <- bind_rows(
   posterior_p_clinical(fit_stan_vload, "Viral Load", "log10_vload_change"),
   posterior_p_clinical(fit_stan_leu3n, "CD4", "leu3n_change"),
   posterior_p_clinical(fit_stan_phys, "Physical Health", "phys_change"),
-  posterior_p_clinical(fit_stan_ment, "Mental Health", "ment_change")
+  posterior_p_clinical(fit_stan_ment, "Mental Health", "ment_change"),
+  posterior_p_clinical(fit_stan_vload_adh, "Viral Load + Adherence", "log10_vload_change"),
+  posterior_p_clinical(fit_stan_leu3n_adh, "CD4 + Adherence", "leu3n_change"),
+  posterior_p_clinical(fit_stan_phys_adh, "Physical Health + Adherence", "phys_change"),
+  posterior_p_clinical(fit_stan_ment_adh, "Mental Health + Adherence", "ment_change")
 )
+
 
 posterior_results
 ```
