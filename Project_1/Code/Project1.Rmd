@@ -130,6 +130,7 @@ n_complete_all
 ```
 
 ```{r}
+# This is the final dataset we use
 data_final <- data_wide %>%
   filter(complete.cases(across(all_vars)))
 ```
@@ -218,13 +219,149 @@ table1 <- data_final %>%
       ment_change ~ "continuous"
     )
   ) %>%
+    add_p(
+    test = list(
+      all_continuous() ~ "t.test",
+      all_categorical() ~ "chisq.test"
+    )
+  ) %>%
   add_overall(last = TRUE) %>%
   bold_labels()
 
 table1
 ```
 
+# Correlation
+```{r}
+vars_corr <- data_final %>%
+  dplyr::select(
+    drugs_0,
+    log10_vload_change,
+    leu3n_change,
+    phys_change,
+    ment_change,
+    age_0,
+    race_0,
+    edu_0,
+    bmi_0,
+    adherence_2,
+    smoke_0
+  ) %>%
+  dplyr::mutate(
+    drugs_0 = as.numeric(drugs_0 == "Yes"),
+    race_0 = as.numeric(race_0 == "Other"),
+    edu_0 = as.numeric(edu_0 == "College or higher"),
+    bmi_0 = as.numeric(bmi_0 == "Overweight"),
+    adherence_2 = as.numeric(adherence_2 %in% c("100%", "95-99%")),
+    smoke_0 = as.numeric(smoke_0 == "Current smoker")
+  )
 
+cor_mat <- cor(
+  vars_corr,
+  use = "pairwise.complete.obs"
+)
+
+cor_df <- as.data.frame(round(cor_mat, 2))
+
+cor_long <- cor_df %>%
+  tibble::rownames_to_column("Var1") %>%
+  pivot_longer(
+    -Var1,
+    names_to = "Var2",
+    values_to = "Correlation"
+  )
+
+var_labels_corr <- c(
+  log10_vload_change = "log10 Viral Load change",
+  leu3n_change = "CD4 change",
+  phys_change = "Physical Health change",
+  ment_change = "Mental Health change",
+  age_0 = "Age",
+  drugs_0 = "Drug Use",
+  race_0 = "Race:Other",
+  edu_0 = "Education:College+",
+  bmi_0 = "BMI:Overweight",
+  adherence_2 = "Adherence High",
+  smoke_0 = "Current Smoker"
+)
+
+var_order <- colnames(vars_corr)
+
+cor_long <- cor_long %>%
+  mutate(
+    Var1 = factor(Var1, levels = var_order),
+    Var2 = factor(Var2, levels = var_order)
+  )
+
+ggplot(cor_long, aes(x = Var2, y = Var1, fill = Correlation)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Correlation), size = 4) +
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    limits = c(-1, 1)
+  ) +
+  scale_x_discrete(labels = var_labels_corr) +
+  scale_y_discrete(labels = var_labels_corr) +
+  ggtitle("Pearson Correlation Matrix") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_blank(),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
+  )
+
+ggsave(
+  "correlation_matrix.png",
+  plot = last_plot(),
+  width = 10, height = 9, dpi = 300,
+  bg = "white")
+```
+
+# boxplot
+```{r}
+data_long_outcome <- data_final %>%
+  select(drugs_0,
+         log10_vload_change,
+         leu3n_change,
+         phys_change,
+         ment_change) %>%
+  pivot_longer(
+    cols = -drugs_0,
+    names_to = "Outcome",
+    values_to = "Value"
+  )
+outcome_labels <- c(
+  log10_vload_change = "Change in log10 Viral Load",
+  leu3n_change = "Change in CD4 count",
+  phys_change = "Change in Physical Health",
+  ment_change = "Change in Mental Health"
+)
+ggplot(data_long_outcome,
+       aes(x = drugs_0, y = Value)) +
+  geom_boxplot(fill = "lightblue", alpha = 0.7) +
+  facet_wrap(~Outcome,
+             scales = "free",
+             labeller = labeller(Outcome = outcome_labels)) +
+  labs(
+    x = "Drug Use at Baseline",
+    y = "Change from Baseline to Year 2",
+    title = "Change in Outcomes by Drug Use"
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 15, face = "bold"),
+    strip.background = element_rect(fill = "grey90", color = "black"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
+  )
+
+ggsave("boxplot.png", plot = last_plot(), width = 12, height = 10, dpi = 300)
+```
 
 
 # Stan data and model
@@ -572,6 +709,25 @@ fit_stan_ment_adh <- linear_adh_model$sample(
 fit_stan_ment_adh$summary()
 ```
 
+```{r}
+fit_stan_ment <- linear_model$sample(
+  data = stan_data_ment,
+  seed = 648,
+  chains = 4,
+  iter_warmup = 2000,
+  iter_sampling = 10000,
+  parallel_chains = 4
+)
+
+fit_stan_ment$summary()
+```
+
+```{r}
+log_lik_ment_adh <- fit_stan_ment_adh$draws("log_lik", format = "matrix")
+log_lik_ment <- fit_stan_ment$draws("log_lik", format = "matrix")
+waic(log_lik_ment_adh)
+waic(log_lik_ment)
+```
 
 ```{r}
 ment_adh_fit <- lm(
@@ -592,3 +748,93 @@ ment_fit <- lm(
 
 summary(ment_fit)
 ```
+
+
+
+# density plot
+```{r}
+extract_density <- function(fit, outcome_name) {
+  draws <- as_draws_matrix(fit$draws("beta_drugs_0"))
+  
+  tibble(
+    value = as.numeric(draws),
+    Outcome = outcome_name
+  )
+}
+
+density_df <- bind_rows(
+  extract_density(fit_stan_vload, "Viral Load"),
+  extract_density(fit_stan_leu3n, "CD4"),
+  extract_density(fit_stan_phys, "Physical Health"),
+  extract_density(fit_stan_ment, "Mental Health")
+)
+
+ggplot(density_df,
+       aes(x = value)) +
+  geom_density(fill = "lightblue", alpha = 0.6) +
+  geom_vline(xintercept = 0,
+             linetype = "dashed",
+             color = "red") +
+  facet_wrap(~Outcome,
+             scales = "free",
+             ncol = 2) +
+  labs(
+    x = "Posterior Drug Effect",
+    y = "Density",
+    title = "Posterior Distribution of Drug Effect Across Outcomes"
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
+  )
+
+ggsave(
+  "posterior_density_drug_effect.png",
+  plot = last_plot(),
+  width = 12,
+  height = 10,
+  dpi = 600,
+  bg = "white"
+)
+```
+# posterior P value
+```{r}
+posterior_p_clinical <- function(fit, model_name, outcome) {
+  
+  draws <- as_draws_matrix(fit$draws("beta_drugs_0"))
+  draws <- as.numeric(draws)
+
+  cutoff <- case_when(
+    outcome == "log10_vload_change" ~ 0.5,
+    outcome == "leu3n_change" ~ -50,
+    outcome == "phys_change" ~ -2,
+    outcome == "ment_change" ~ -2
+  )
+
+  post_prob <- case_when(
+    outcome == "log10_vload_change" ~ mean(draws < cutoff),
+    TRUE ~ mean(draws > cutoff))
+  
+  tibble(
+    Model = model_name,
+    Outcome = outcome,
+    Mean = mean(draws),
+    Lower = quantile(draws, 0.025),
+    Upper = quantile(draws, 0.975),
+    Post_Prob_ClinicallyMeaningful = post_prob
+  )
+}
+
+posterior_results <- bind_rows(
+  posterior_p_clinical(fit_stan_vload, "Viral Load", "log10_vload_change"),
+  posterior_p_clinical(fit_stan_leu3n, "CD4", "leu3n_change"),
+  posterior_p_clinical(fit_stan_phys, "Physical Health", "phys_change"),
+  posterior_p_clinical(fit_stan_ment, "Mental Health", "ment_change")
+)
+
+posterior_results
+```
+
