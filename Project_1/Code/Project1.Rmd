@@ -565,6 +565,11 @@ log_lik_vload <- fit_stan_vload$draws("log_lik", format = "matrix")
 waic(log_lik_vload_adh)
 waic(log_lik_vload)
 ```
+```{r}
+posterior <- as_draws_array(fit_stan_vload$draws())
+mcmc_trace(posterior, pars = c("beta_drugs_0"))
+```
+
 
 ```{r}
 vload_adh_fit <- lm(
@@ -613,7 +618,10 @@ fit_stan_leu3n <- linear_model$sample(
 fit_stan_leu3n$summary()
 ```
 
-
+```{r}
+posterior <- as_draws_array(fit_stan_leu3n$draws())
+mcmc_trace(posterior, pars = c("beta_drugs_0"))
+```
 
 ```{r}
 leu3n_adh_fit <- lm(
@@ -642,7 +650,6 @@ waic(log_lik_leu3n_adh)
 waic(log_lik_leu3n)
 ```
 # physical score
-
 ```{r}
 fit_stan_phys_adh <- linear_adh_model$sample(
   data = stan_data_phys_adh,
@@ -667,6 +674,11 @@ fit_stan_phys <- linear_model$sample(
 )
 
 fit_stan_phys$summary()
+```
+
+```{r}
+posterior <- as_draws_array(fit_stan_phys$draws())
+mcmc_trace(posterior, pars = c("beta_drugs_0"))
 ```
 
 ```{r}
@@ -729,6 +741,11 @@ log_lik_ment_adh <- fit_stan_ment_adh$draws("log_lik", format = "matrix")
 log_lik_ment <- fit_stan_ment$draws("log_lik", format = "matrix")
 waic(log_lik_ment_adh)
 waic(log_lik_ment)
+```
+
+```{r}
+posterior <- as_draws_array(fit_stan_ment_adh$draws())
+mcmc_trace(posterior, pars = c("beta_drugs_0"))
 ```
 
 ```{r}
