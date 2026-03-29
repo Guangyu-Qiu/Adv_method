@@ -1,0 +1,114 @@
+---
+title: "Project2"
+author: "Guangyu Qiu"
+date: "2026-03-23"
+output: pdf_document
+---
+```{r}
+library(table1)
+library(here)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(readr)
+library(table1)
+library(tableone)
+library(lubridate)
+library(forcats)
+library(sjlabelled)
+library(kableExtra)
+library(gtsummary)
+library(tibble)
+library(broom)
+library(survival)
+library(survminer)
+library(ggVennDiagram)
+library(purrr)
+library(patchwork)
+library(gridExtra)
+library(lme4)
+library(broom.mixed)
+library(knitr)
+library(scales)
+library(powertools)
+```
+
+```{r}
+data <- read_csv("PrelimData.csv")
+data
+```
+
+```{r}
+cor_mat <- cor(data, use = "pairwise.complete.obs", method = "pearson")
+print(cor_mat)
+
+
+library(corrplot)
+
+corrplot(cor_mat,
+         method = "color",
+         type = "upper",
+         addCoef.col = "black",
+         tl.col = "black",
+         tl.srt = 45)
+
+```
+
+```{r}
+library(powertools)
+
+n_total <- 192
+dropout <- 0.10
+n_eff <- n_total * (1 - dropout)
+alpha <- 0.05
+power_target <- 0.8
+predictor_set <- 3:8 
+r_range <- seq(0.1, 0.7, by = 0.1) # partial correlation range
+
+results <- sapply(predictor_set, function(k) {
+  sapply(r_range, function(r) {
+    mlrF.partial(
+      N = n_eff,
+      p = k,
+      q = 1, 
+      pc = r,   # partial correlation
+      alpha = alpha,
+      power = NULL 
+    )
+  })
+})
+
+results_df <- as.data.frame(results)
+colnames(results_df) <- paste0("k=", predictor_set)
+rownames(results_df) <- paste0("r=", r_range)
+
+results_df
+```
+
+```{r}
+alpha <- 0.05
+power_target <- 0.8
+predictor_set <- 3:8  
+r_range <- seq(0.1, 0.7, by = 0.1)  # partial correlation range
+q <- 1                         # only test the first predictor
+
+results <- sapply(predictor_set, function(k) {
+  sapply(r_range, function(r) {
+    mlrF.partial(
+      N = NULL,  
+      p = k,
+      q = q,
+      pc = r,     # partial correlation
+      alpha = alpha,
+      power = power_target
+    )
+  })
+})
+
+results_df <- as.data.frame(results)
+colnames(results_df) <- paste0("k=", predictor_set)
+rownames(results_df) <- paste0("r=", r_range)
+
+results_df
+```
+
