@@ -83,7 +83,7 @@ n_total <- 192
 dropout <- 0.10 # assume by PI
 n_eff <- floor(n_total * (1 - dropout))
 
-alpha <- 0.05/6 # use Bonferroni to adjust for type one error rate
+alpha <- 0.05/4 # use Bonferroni to adjust for type one error rate
 power_target <- 0.8 # target power
 predictor_set <- 3:8 # we don't know how many covariates will be added, so we set this range
 r_range <- seq(0.1, 0.7, by = 0.1) # partial correlation range
@@ -103,7 +103,7 @@ power_df
 
 ```{r}
 # calculate sample size need to reach 80% power
-alpha <- 0.05/6 # use Bonferroni to adjust for type one error rate
+alpha <- 0.05/4 # use Bonferroni to adjust for type one error rate
 power_target <- 0.8 # target power
 predictor_set <- 3:8  # we don't know how many covariates will be added, so we set this range
 r_range <- seq(0.1, 0.7, by = 0.1)  # partial correlation range
@@ -133,7 +133,7 @@ sample_df
 n_total <- 192
 dropout <- 0.10
 n_eff <- floor(n_total * (1 - dropout))  # 172
-alpha <- 0.05/6   # Bonferroni
+alpha <- 0.05/4   # Bonferroni
 q <- 1
 k <- 8  # set to 8
 r_range <- seq(0.1, 0.7, by = 0.01) # compute power every 0.01 correlation
@@ -213,7 +213,7 @@ p_sample <- ggplot(sample_df, aes(x = r, y = sample_size)) +
   labs(
     x = "Partial correlation (r)",
     y = "Required Sample Size",
-    title = "Sample Size vs Partial Correlation (Power = 0.8, k = 8)"
+    title = "Sample Size vs Partial Correlation"
   ) +
   theme_minimal(base_size = 14) +
   theme(
