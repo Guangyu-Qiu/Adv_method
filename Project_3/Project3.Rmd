@@ -1,0 +1,93 @@
+---
+title: "Project_3"
+author: "Guangyu Qiu"
+date: "2026-04-01"
+output: pdf_document
+---
+
+```{r}
+library(readr)
+library(powertools)
+library(tidyverse)
+data <- read_csv("frmgham2.csv")
+```
+```{r}
+# check if everyone has baseline: true for everyone
+baseline_check <- data %>%
+  group_by(RANDID) %>%
+  summarise(has_baseline = any(TIME == 0)) %>%
+  ungroup()
+
+table(baseline_check$has_baseline)
+```
+```{r}
+# check if everyone has just one baseline: yes
+baseline_count <- data %>%
+  filter(TIME == 0) %>%
+  count(RANDID)
+
+table(baseline_count$n)
+```
+
+
+```{r}
+# generate the dataset realy for analysis
+analysis_baseline <- data %>%
+  arrange(RANDID, TIME) %>% 
+  group_by(RANDID) %>%
+  filter(TIME == 0) %>%  # use the baseline
+  ungroup() %>%
+  transmute(
+    id = RANDID,
+    sex = factor(SEX,
+                 levels = c(1, 2),
+                 labels = c("Male", "Female")),
+    age = AGE,
+    chol = TOTCHOL,
+    bp = SYSBP,
+    smoke = factor(CURSMOKE,
+                   levels = c(0, 1),
+                   labels = c("No", "Yes")),
+    bmi_raw = BMI,
+    bmi_cat = case_when(
+      BMI < 18.5 ~ "underweight",
+      BMI >= 18.5 & BMI < 25 ~ "normal",
+      BMI >= 25 ~ "overweight",
+      TRUE ~ NA_character_
+    ) %>% factor(levels = c("underweight", "normal", "overweight")),
+    diabetes = factor(DIABETES,
+                      levels = c(0, 1),
+                      labels = c("No", "Yes")),
+    hd = factor(PREVCHD,
+                levels = c(0, 1),
+                labels = c("No", "Yes")),
+    med = factor(BPMEDS,
+                 levels = c(0, 1),
+                 labels = c("No", "Yes")),
+    # Outcome: censored at 10 years
+    time_raw = TIMESTRK,
+    stroke_raw = STROKE,
+    time = pmin(TIMESTRK, 3652),
+    stroke = ifelse(TIMESTRK > 3652, 0, STROKE)
+  )
+```
+
+```{r}
+# missingness check
+missing_summary <- analysis_baseline %>%
+  summarise(across(
+    everything(),
+    ~ sum(is.na(.))
+  ))
+
+missing_summary
+```
+
+```{r}
+# check the range
+cont_vars <- analysis_baseline %>%
+  dplyr::select(age, chol, bp, bmi_raw)
+
+summary(cont_vars)
+```
+
