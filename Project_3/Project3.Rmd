@@ -57,13 +57,7 @@ analysis_baseline <- data %>%
     smoke = factor(CURSMOKE,
                    levels = c(0, 1),
                    labels = c("No", "Yes")),
-    bmi_raw = BMI,
-    bmi_cat = case_when(
-      BMI < 18.5 ~ "underweight",
-      BMI >= 18.5 & BMI < 25 ~ "normal",
-      BMI >= 25 ~ "overweight",
-      TRUE ~ NA_character_
-    ) %>% factor(levels = c("underweight", "normal", "overweight")),
+    bmi = BMI,
     diabetes = factor(DIABETES,
                       levels = c(0, 1),
                       labels = c("No", "Yes")),
@@ -74,11 +68,11 @@ analysis_baseline <- data %>%
                  levels = c(0, 1),
                  labels = c("No", "Yes")),
     # Outcome: censored at 10 years
-    time_raw = TIMESTRK,
-    stroke_raw = STROKE,
     time = pmin(TIMESTRK, 3652),
     stroke = ifelse(TIMESTRK > 3652, 0, STROKE)
-  )
+  ) %>%
+  # exclude individuals with time == 0 (stroke at baseline)
+  filter(time > 0)
 ```
 
 # data quality check
