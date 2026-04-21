@@ -4,13 +4,21 @@ author: "Guangyu Qiu"
 date: "2026-04-01"
 output: pdf_document
 ---
-
+# setup
 ```{r}
 library(readr)
 library(powertools)
+library(ggplot2)
 library(tidyverse)
+library(gtsummary) # table 1
+library(tibble)
+library(Hmisc)
+library(survival)
+library(survminer)
+library(gridExtra)
 data <- read_csv("frmgham2.csv")
 ```
+
 ```{r}
 # check if everyone has baseline: true for everyone
 baseline_check <- data %>%
@@ -20,6 +28,7 @@ baseline_check <- data %>%
 
 table(baseline_check$has_baseline)
 ```
+
 ```{r}
 # check if everyone has just one baseline: yes
 baseline_count <- data %>%
@@ -72,6 +81,7 @@ analysis_baseline <- data %>%
   )
 ```
 
+# data quality check
 ```{r}
 # missingness check
 missing_summary <- analysis_baseline %>%
@@ -89,5 +99,109 @@ cont_vars <- analysis_baseline %>%
   dplyr::select(age, chol, bp, bmi_raw)
 
 summary(cont_vars)
+```
+
+
+
+# Table 1
+```{r}
+tbl1 <- analysis_baseline %>%
+  dplyr::select(
+    sex, age, chol, bp, smoke, bmi_cat, diabetes, hd, med
+  ) %>%
+  tbl_summary(
+    by = sex,
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    label = list(
+      age = "Age",
+      chol = "Total Cholesterol",
+      bp = "Systolic Blood Pressure",
+      smoke = "Current Smoker",
+      bmi_cat = "BMI",
+      diabetes = "Diabetes",
+      hd = "Prevalent HD",
+      med = "Anti-hypertensive Medications"
+    ),
+    missing = "ifany",
+    digits = all_continuous() ~ 2,
+  ) %>%
+  add_overall(last = TRUE) %>%
+  bold_labels()
+
+tbl1
+```
+
+```{r}
+vars_corr <- analysis_baseline %>%
+  dplyr::mutate(
+    sex_num = as.numeric(sex == "Male"),
+    smoke_num = as.numeric(smoke == "Yes"),
+    bmi_bin = as.numeric(bmi_cat == "normal"),
+    diabetes_num = as.numeric(diabetes == "Yes"),
+    hd_num = as.numeric(hd == "Yes"),
+    med_num = as.numeric(med == "Yes")
+  ) %>%
+  dplyr::select(
+    age, chol, bp,
+    sex_num, smoke_num, bmi_bin, diabetes_num, hd_num, med_num
+  )
+
+cor_mat <- cor(vars_corr, use = "pairwise.complete.obs", method = "pearson")
+cor_df <- as.data.frame(round(cor_mat, 2))
+
+cor_long <- cor_df %>%
+  rownames_to_column("Var1") %>%
+  pivot_longer(
+    -Var1,
+    names_to = "Var2",
+    values_to = "Correlation"
+  )
+
+var_labels <- c(
+  age = "Age",
+  chol = "Cholesterol",
+  bp = "Systolic BP",
+  sex_num = "Male",
+  smoke_num = "Current Smoker",
+  bmi_bin = "BMI normal",
+  diabetes_num = "Diabetes",
+  hd_num = "Prevalent CHD",
+  med_num = "Anti-hypertensive Meds"
+)
+
+var_order <- colnames(vars_corr)
+
+cor_long <- cor_long %>%
+  mutate(
+    Var1 = factor(Var1, levels = var_order),
+    Var2 = factor(Var2, levels = var_order)
+  )
+
+p <- ggplot(cor_long, aes(x = Var2, y = Var1, fill = Correlation)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = sprintf("%.2f", Correlation)), size = 4) +
+  scale_fill_gradient2(
+    low = "blue", mid = "white", high = "red",
+    midpoint = 0, limits = c(-1, 1)
+  ) +
+  scale_x_discrete(labels = var_labels) +
+  scale_y_discrete(labels = var_labels) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
+  ) +
+  ggtitle("Correlation Matrix")
+
+
+ggsave(
+  filename = "correlation_matrix_pearson.png", plot = p,
+  width = 14, height = 12, dpi = 600, bg = "white")
 ```
 
