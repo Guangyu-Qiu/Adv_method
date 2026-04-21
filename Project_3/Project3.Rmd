@@ -17,6 +17,7 @@ library(survival)
 library(survminer)
 library(gridExtra)
 data <- read_csv("frmgham2.csv")
+table(data$PERIOD)
 ```
 
 ```{r}
@@ -90,7 +91,7 @@ missing_summary
 ```{r}
 # check the range
 cont_vars <- analysis_baseline %>%
-  dplyr::select(age, chol, bp, bmi_raw)
+  dplyr::select(age, chol, bp, bmi)
 
 summary(cont_vars)
 ```
@@ -101,7 +102,7 @@ summary(cont_vars)
 ```{r}
 tbl1 <- analysis_baseline %>%
   dplyr::select(
-    sex, age, chol, bp, smoke, bmi_cat, diabetes, hd, med
+    sex, age, chol, bp, smoke, bmi, diabetes, hd, med
   ) %>%
   tbl_summary(
     by = sex,
@@ -114,7 +115,7 @@ tbl1 <- analysis_baseline %>%
       chol = "Total Cholesterol",
       bp = "Systolic Blood Pressure",
       smoke = "Current Smoker",
-      bmi_cat = "BMI",
+      bmi = "BMI",
       diabetes = "Diabetes",
       hd = "Prevalent HD",
       med = "Anti-hypertensive Medications"
@@ -127,20 +128,19 @@ tbl1 <- analysis_baseline %>%
 
 tbl1
 ```
-
+# correlation matrix
 ```{r}
 vars_corr <- analysis_baseline %>%
   dplyr::mutate(
     sex_num = as.numeric(sex == "Male"),
     smoke_num = as.numeric(smoke == "Yes"),
-    bmi_bin = as.numeric(bmi_cat == "normal"),
     diabetes_num = as.numeric(diabetes == "Yes"),
     hd_num = as.numeric(hd == "Yes"),
     med_num = as.numeric(med == "Yes")
   ) %>%
   dplyr::select(
     age, chol, bp,
-    sex_num, smoke_num, bmi_bin, diabetes_num, hd_num, med_num
+    sex_num, smoke_num, bmi, diabetes_num, hd_num, med_num
   )
 
 cor_mat <- cor(vars_corr, use = "pairwise.complete.obs", method = "pearson")
@@ -160,7 +160,7 @@ var_labels <- c(
   bp = "Systolic BP",
   sex_num = "Male",
   smoke_num = "Current Smoker",
-  bmi_bin = "BMI normal",
+  bmi = "BMI",
   diabetes_num = "Diabetes",
   hd_num = "Prevalent CHD",
   med_num = "Anti-hypertensive Meds"
@@ -194,8 +194,28 @@ p <- ggplot(cor_long, aes(x = Var2, y = Var1, fill = Correlation)) +
   ggtitle("Correlation Matrix")
 
 
-ggsave(
-  filename = "correlation_matrix_pearson.png", plot = p,
-  width = 14, height = 12, dpi = 600, bg = "white")
+# ggsave(
+#   filename = "correlation_matrix_pearson.png", plot = p,
+#   width = 14, height = 12, dpi = 600, bg = "white")
+p
+```
+
+# BP and diabetes change over periods
+```{r}
+longitudinal_summary <- data %>%
+  mutate(Period = factor(PERIOD, labels = c("Period 1", "Period 2", "Period 3"))) %>%
+  group_by(Period) %>%
+  summarise(
+    N = n(),
+    BP_mean         = round(mean(SYSBP, na.rm = TRUE), 2),
+    BP_sd           = round(sd(SYSBP, na.rm = TRUE), 2),
+    Diabetes_pct    = round(mean(DIABETES, na.rm = TRUE) * 100, 1),
+    Cholesterol_mean = round(mean(TOTCHOL, na.rm = TRUE), 2),
+    Cholesterol_sd  = round(sd(TOTCHOL, na.rm = TRUE), 2),
+    BMI_mean        = round(mean(BMI, na.rm = TRUE), 2),
+    Smoke_pct       = round(mean(CURSMOKE, na.rm = TRUE) * 100, 1)
+  )
+ 
+print(longitudinal_summary)
 ```
 
