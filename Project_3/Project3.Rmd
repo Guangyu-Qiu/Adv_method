@@ -365,4 +365,31 @@ kable(
   )
 )
 ```
+# ph test
+```{r}
+cox_male <- coxph(
+  Surv(time, stroke) ~ age + bp + diabetes + smoke,
+  data = analysis_baseline |> filter(sex == "Male")
+)
+
+summary(cox_male)
+
+ph_male <- cox.zph(cox_male)
+print(ph_male)
+ggcoxzph(ph_male)
+```
+
+
+```{r}
+cox_female <- coxph(
+  Surv(time, stroke) ~ age + bp + diabetes + smoke,
+  data = analysis_baseline |> filter(sex == "Female")
+)
+
+summary(cox_female)
+
+ph_female <- cox.zph(cox_female)
+print(ph_female)
+ggcoxzph(ph_female)
+```
 
