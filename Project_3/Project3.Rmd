@@ -16,6 +16,10 @@ library(Hmisc)
 library(survival)
 library(survminer)
 library(gridExtra)
+library(broom)
+library(dplyr)
+library(purrr)
+library(knitr)
 data <- read_csv("frmgham2.csv")
 table(data$PERIOD)
 ```
@@ -202,20 +206,163 @@ p
 
 # BP and diabetes change over periods
 ```{r}
-longitudinal_summary <- data %>%
-  mutate(Period = factor(PERIOD, labels = c("Period 1", "Period 2", "Period 3"))) %>%
-  group_by(Period) %>%
-  summarise(
-    N = n(),
-    BP_mean         = round(mean(SYSBP, na.rm = TRUE), 2),
-    BP_sd           = round(sd(SYSBP, na.rm = TRUE), 2),
-    Diabetes_pct    = round(mean(DIABETES, na.rm = TRUE) * 100, 1),
-    Cholesterol_mean = round(mean(TOTCHOL, na.rm = TRUE), 2),
-    Cholesterol_sd  = round(sd(TOTCHOL, na.rm = TRUE), 2),
-    BMI_mean        = round(mean(BMI, na.rm = TRUE), 2),
-    Smoke_pct       = round(mean(CURSMOKE, na.rm = TRUE) * 100, 1)
-  )
+tbl_longitudinal <- data %>%
+  mutate(
+    Period = factor(PERIOD, labels = c("Period 1", "Period 2", "Period 3")),
+    diabetes = factor(DIABETES, levels = c(0,1), labels = c("No","Yes"))
+  ) %>%
+  dplyr::select(Period, SYSBP, diabetes) %>%
+  tbl_summary(
+    by = Period,
+    statistic = list(
+      all_continuous()  ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    label = list(
+      SYSBP = "Systolic BP (mmHg)",
+      diabetes = "Diabetes"
+    ),
+    missing = "ifany",
+    digits  = all_continuous() ~ 2
+  ) %>%
+  bold_labels()
  
-print(longitudinal_summary)
+tbl_longitudinal
+```
+# backward selection
+```{r}
+cox_predictors <- c("age", "bp", "diabetes", "chol", "smoke", "bmi", "hd", "med")
+
+run_backward_cox <- function(data, vars) {
+  
+  # use complete cases
+  df_complete <- data |>
+    dplyr::select(all_of(c("time", "stroke", vars))) |>
+    na.omit()
+  
+  full_formula <- as.formula(
+    paste("Surv(time, stroke) ~", paste(vars, collapse = " + "))
+  )
+  
+  full_model <- coxph(full_formula, data = df_complete)
+  
+  step_model <- step(full_model, direction = "backward", trace = 1)
+  
+  return(step_model)
+}
+
+# Male
+backward_male <- analysis_baseline |>
+  filter(sex == "Male") |>
+  run_backward_cox(cox_predictors)
+
+# Female
+backward_female <- analysis_baseline |>
+  filter(sex == "Female") |>
+  run_backward_cox(cox_predictors)
+
+summary(backward_male)
+summary(backward_female)
+```
+
+
+# univariable cox regression
+```{r}
+run_uni_cox <- function(data) {
+  map_dfr(cox_predictors, function(var) {
+    
+    fit <- coxph(
+      as.formula(paste("Surv(time, stroke) ~", var)),
+      data = data
+    )
+    
+    tidy(fit, conf.int = TRUE) |>
+      filter(term != "(Intercept)") |>
+      transmute(
+        Variable = term,
+        Uni_HR = paste0(
+          round(exp(estimate), 2), " (",
+          round(exp(conf.low), 2), ", ",
+          round(exp(conf.high), 2), ")"
+        ),
+        Uni_P = ifelse(p.value < 0.001, "<0.001", sprintf("%.3f", p.value))
+      )
+  })
+}
+
+# Male
+uni_male <- analysis_baseline |>
+  filter(sex == "Male") |>
+  run_uni_cox()
+
+# Female
+uni_female <- analysis_baseline |>
+  filter(sex == "Female") |>
+  run_uni_cox()
+```
+
+
+# multivariable cox regression
+```{r}
+multi_vars <- c("age", "bp", "diabetes","smoke") 
+
+run_multi_cox <- function(data, vars) {
+  
+  formula <- as.formula(
+    paste("Surv(time, stroke) ~", paste(vars, collapse = " + "))
+  )
+  
+  fit <- coxph(formula, data = data)
+  
+  tidy(fit, conf.int = TRUE) |>
+    filter(term != "(Intercept)") |>
+    transmute(
+      Variable = term,
+      Multi_HR = paste0(
+        round(exp(estimate), 2), " (",
+        round(exp(conf.low), 2), ", ",
+        round(exp(conf.high), 2), ")"
+      ),
+      Multi_P = ifelse(p.value < 0.001, "<0.001", sprintf("%.3f", p.value))
+    )
+}
+
+# Male
+multi_male <- analysis_baseline |>
+  filter(sex == "Male") |>
+  run_multi_cox(multi_vars)
+
+# Female
+multi_female <- analysis_baseline |>
+  filter(sex == "Female") |>
+  run_multi_cox(multi_vars)
+```
+
+```{r}
+final_table_male <- uni_male |>
+  left_join(multi_male, by = "Variable")
+
+final_table_female <- uni_female |>
+  left_join(multi_female, by = "Variable")
+
+kable(
+  final_table_male,
+  format = "pipe",
+  col.names = c(
+    "Variable",
+    "Univariable HR (95% CI)", "Univariable P-value",
+    "Multivariable HR (95% CI)", "Multivariable P-value"
+  )
+)
+
+kable(
+  final_table_female,
+  format = "pipe",
+  col.names = c(
+    "Variable",
+    "Univariable HR (95% CI)", "Univariable P-value",
+    "Multivariable HR (95% CI)", "Multivariable P-value"
+  )
+)
 ```
 
