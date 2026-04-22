@@ -5,8 +5,5 @@ HW/
 .Ruserdata
 .csv
 .png
-
-Project_0/*.csv
-
-Project_1/*.png
-Project_1/*.csv
+.pdf
+.tex
