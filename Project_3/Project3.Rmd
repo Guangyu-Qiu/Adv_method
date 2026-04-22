@@ -198,10 +198,9 @@ p <- ggplot(cor_long, aes(x = Var2, y = Var1, fill = Correlation)) +
   ggtitle("Correlation Matrix")
 
 
-# ggsave(
-#   filename = "correlation_matrix_pearson.png", plot = p,
-#   width = 14, height = 12, dpi = 600, bg = "white")
-p
+ggsave(
+  filename = "correlation_matrix_pearson.png", plot = p,
+  width = 14, height = 12, dpi = 600, bg = "white")
 ```
 
 # BP and diabetes change over periods
@@ -392,4 +391,97 @@ ph_female <- cox.zph(cox_female)
 print(ph_female)
 ggcoxzph(ph_female)
 ```
+# profile for 10 year survival prob
+```{r}
+bp_ref <- analysis_baseline %>%
+  mutate(bp_group = ifelse(bp > 160, "high", "low")) %>%
+  group_by(sex, bp_group) %>%
+  summarise(mean_bp = mean(bp, na.rm = TRUE), .groups = "drop")
+
+
+make_prob_table_simple <- function(model, df, sex_label, bp_ref) {
+  
+  bp_means <- bp_ref %>% filter(sex == sex_label)
+
+  model_vars <- attr(model$terms, "term.labels")
+  
+  newdata <- expand.grid(
+    age      = c(40, 50, 60),
+    diabetes = c("No", "Yes"),
+    smoke    = c("No", "Yes"),
+    bp_group = c("low", "high")
+  ) %>%
+    mutate(
+      bp = ifelse(
+        bp_group == "high",
+        bp_means$mean_bp[bp_means$bp_group == "high"],
+        bp_means$mean_bp[bp_means$bp_group == "low"]
+      ),
+      diabetes = factor(diabetes, levels = c("No", "Yes")),
+      smoke    = factor(smoke,    levels = c("No", "Yes"))
+    )
+  
+  mode_val <- function(x) {
+    ux <- na.omit(unique(x))
+    ux[which.max(tabulate(match(x, ux)))]
+  }
+  
+  ref <- list(
+    chol = mean(df$chol, na.rm = TRUE),
+    bmi  = mean(df$bmi,  na.rm = TRUE),
+    hd   = mode_val(df$hd),
+    med  = mode_val(df$med)
+  )
+  
+  for (v in intersect(model_vars, names(ref))) {
+    newdata[[v]] <- ref[[v]]
+  }
+
+  sf      <- survfit(model, newdata = newdata)
+  sf_sum  <- summary(sf, times = 3652, extend = TRUE)
+  
+  surv_10y <- as.numeric(sf_sum$surv[1, ])
+  
+  newdata %>%
+    mutate(stroke_10y = round((1 - surv_10y) * 100, 2)) %>%
+    dplyr::select(age, diabetes, smoke, bp_group, stroke_10y) %>%
+    arrange(age, diabetes, smoke, bp_group)
+}
+```
+
+```{r}
+prob_male <- make_prob_table_simple(
+  cox_male,
+  analysis_baseline %>% filter(sex == "Male"),
+  "Male",
+  bp_ref
+)
+
+prob_female <- make_prob_table_simple(
+  cox_female,
+  analysis_baseline %>% filter(sex == "Female"),
+  "Female",
+  bp_ref
+)
+
+combined_prob <- prob_male %>%
+  rename(Male = stroke_10y) %>%
+  left_join(
+    prob_female %>% rename(Female = stroke_10y),
+    by = c("age", "diabetes", "smoke", "bp_group")
+  )
+
+combined_prob
+
+cat(
+  kable(
+    combined_prob,
+    format = "latex",
+    booktabs = TRUE,
+    digits = 3
+  ),
+  file = "prob_table.tex"
+)
+```
+
 
