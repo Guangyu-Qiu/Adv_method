@@ -1,0 +1,72 @@
+---
+title: "worksheet4"
+author: "Guangyu Qiu"
+date: "2026-04-13"
+output: pdf_document
+---
+
+```{r}
+library(readr)
+library(powertools)
+library(tidyverse)
+library(survival)
+library(survminer)
+
+ovarian_data <- read_csv("ovarian.csv")
+ovarian_data
+```
+
+```{r}
+#fit_cox <- coxph(Surv(futime, fustat) ~ rx, data = ovarian_data)
+#fit_cox <- coxph(Surv(futime, fustat) ~ resid.ds, data = ovarian_data)
+fit_cox <- coxph(Surv(futime, fustat) ~ ecog.ps, data = ovarian_data) 
+test_ph <- cox.zph(fit_cox)
+print(test_ph)
+ggcoxzph(test_ph)
+```
+```{r}
+fit_cox <- coxph(Surv(futime, fustat) ~ rx + age + ecog.ps + resid.ds, data = ovarian_data) 
+summary(fit_cox)
+```
+```{r}
+fit_km <- survfit(Surv(futime, fustat) ~ rx, data = ovarian_data)
+
+ggsurvplot(
+  fit_km,
+  data = ovarian_data,
+  risk.table = TRUE, 
+  pval = TRUE,
+  conf.int = FALSE,
+  legend.title = "Group",
+  legend.labs = c("Control", "Treatment")
+)
+```
+```{r}
+fit_cox <- coxph(Surv(futime, fustat) ~ rx + age + ecog.ps + resid.ds, 
+                 data = ovarian_data)
+
+new_patients <- data.frame(
+  rx = c(1, 2),
+  age = c(60, 50),
+  ecog.ps = c(1, 2),
+  resid.ds = c(1, 2)
+)
+
+fit_surv_patients <- survfit(fit_cox, newdata = new_patients)
+
+times <- c(365, 547.5, 730)
+
+summary_surv <- summary(fit_surv_patients, times = times)
+
+surv_probs <- data.frame(
+  time = summary_surv$time,
+  surv = summary_surv$surv,
+  patient = rep(c("Patient 1", "Patient 2"), times = length(times))
+)
+surv_probs
+```
+
+```{r}
+new_patients
+```
+
