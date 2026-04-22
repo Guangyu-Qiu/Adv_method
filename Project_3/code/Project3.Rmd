@@ -1,0 +1,487 @@
+---
+title: "Project_3"
+author: "Guangyu Qiu"
+date: "2026-04-01"
+output: pdf_document
+---
+# setup
+```{r}
+library(readr)
+library(powertools)
+library(ggplot2)
+library(tidyverse)
+library(gtsummary) # table 1
+library(tibble)
+library(Hmisc)
+library(survival)
+library(survminer)
+library(gridExtra)
+library(broom)
+library(dplyr)
+library(purrr)
+library(knitr)
+data <- read_csv("frmgham2.csv")
+table(data$PERIOD)
+```
+
+```{r}
+# check if everyone has baseline: true for everyone
+baseline_check <- data %>%
+  group_by(RANDID) %>%
+  summarise(has_baseline = any(TIME == 0)) %>%
+  ungroup()
+
+table(baseline_check$has_baseline)
+```
+
+```{r}
+# check if everyone has just one baseline: yes
+baseline_count <- data %>%
+  filter(TIME == 0) %>%
+  count(RANDID)
+
+table(baseline_count$n)
+```
+
+
+```{r}
+# generate the dataset realy for analysis
+analysis_baseline <- data %>%
+  arrange(RANDID, TIME) %>% 
+  group_by(RANDID) %>%
+  filter(TIME == 0) %>%  # use the baseline
+  ungroup() %>%
+  transmute(
+    id = RANDID,
+    sex = factor(SEX,
+                 levels = c(1, 2),
+                 labels = c("Male", "Female")),
+    age = AGE,
+    chol = TOTCHOL,
+    bp = SYSBP,
+    smoke = factor(CURSMOKE,
+                   levels = c(0, 1),
+                   labels = c("No", "Yes")),
+    bmi = BMI,
+    diabetes = factor(DIABETES,
+                      levels = c(0, 1),
+                      labels = c("No", "Yes")),
+    hd = factor(PREVCHD,
+                levels = c(0, 1),
+                labels = c("No", "Yes")),
+    med = factor(BPMEDS,
+                 levels = c(0, 1),
+                 labels = c("No", "Yes")),
+    # Outcome: censored at 10 years
+    time = pmin(TIMESTRK, 3652),
+    stroke = ifelse(TIMESTRK > 3652, 0, STROKE)
+  ) %>%
+  # exclude individuals with time == 0 (stroke at baseline)
+  filter(time > 0)
+```
+
+# data quality check
+```{r}
+# missingness check
+missing_summary <- analysis_baseline %>%
+  summarise(across(
+    everything(),
+    ~ sum(is.na(.))
+  ))
+
+missing_summary
+```
+
+```{r}
+# check the range
+cont_vars <- analysis_baseline %>%
+  dplyr::select(age, chol, bp, bmi)
+
+summary(cont_vars)
+```
+
+
+
+# Table 1
+```{r}
+tbl1 <- analysis_baseline %>%
+  dplyr::select(
+    sex, age, chol, bp, smoke, bmi, diabetes, hd, med
+  ) %>%
+  tbl_summary(
+    by = sex,
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    label = list(
+      age = "Age",
+      chol = "Total Cholesterol",
+      bp = "Systolic Blood Pressure",
+      smoke = "Current Smoker",
+      bmi = "BMI",
+      diabetes = "Diabetes",
+      hd = "Prevalent HD",
+      med = "Anti-hypertensive Medications"
+    ),
+    missing = "ifany",
+    digits = all_continuous() ~ 2,
+  ) %>%
+  add_overall(last = TRUE) %>%
+  bold_labels()
+
+tbl1
+```
+# correlation matrix
+```{r}
+vars_corr <- analysis_baseline %>%
+  dplyr::mutate(
+    sex_num = as.numeric(sex == "Male"),
+    smoke_num = as.numeric(smoke == "Yes"),
+    diabetes_num = as.numeric(diabetes == "Yes"),
+    hd_num = as.numeric(hd == "Yes"),
+    med_num = as.numeric(med == "Yes")
+  ) %>%
+  dplyr::select(
+    age, chol, bp,
+    sex_num, smoke_num, bmi, diabetes_num, hd_num, med_num
+  )
+
+cor_mat <- cor(vars_corr, use = "pairwise.complete.obs", method = "pearson")
+cor_df <- as.data.frame(round(cor_mat, 2))
+
+cor_long <- cor_df %>%
+  rownames_to_column("Var1") %>%
+  pivot_longer(
+    -Var1,
+    names_to = "Var2",
+    values_to = "Correlation"
+  )
+
+var_labels <- c(
+  age = "Age",
+  chol = "Cholesterol",
+  bp = "Systolic BP",
+  sex_num = "Male",
+  smoke_num = "Current Smoker",
+  bmi = "BMI",
+  diabetes_num = "Diabetes",
+  hd_num = "Prevalent CHD",
+  med_num = "Anti-hypertensive Meds"
+)
+
+var_order <- colnames(vars_corr)
+
+cor_long <- cor_long %>%
+  mutate(
+    Var1 = factor(Var1, levels = var_order),
+    Var2 = factor(Var2, levels = var_order)
+  )
+
+p <- ggplot(cor_long, aes(x = Var2, y = Var1, fill = Correlation)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = sprintf("%.2f", Correlation)), size = 4) +
+  scale_fill_gradient2(
+    low = "blue", mid = "white", high = "red",
+    midpoint = 0, limits = c(-1, 1)
+  ) +
+  scale_x_discrete(labels = var_labels) +
+  scale_y_discrete(labels = var_labels) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
+  ) +
+  ggtitle("Correlation Matrix")
+
+
+ggsave(
+  filename = "correlation_matrix_pearson.png", plot = p,
+  width = 14, height = 12, dpi = 600, bg = "white")
+```
+
+# BP and diabetes change over periods
+```{r}
+tbl_longitudinal <- data %>%
+  mutate(
+    Period = factor(PERIOD, labels = c("Period 1", "Period 2", "Period 3")),
+    diabetes = factor(DIABETES, levels = c(0,1), labels = c("No","Yes"))
+  ) %>%
+  dplyr::select(Period, SYSBP, diabetes) %>%
+  tbl_summary(
+    by = Period,
+    statistic = list(
+      all_continuous()  ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    label = list(
+      SYSBP = "Systolic BP (mmHg)",
+      diabetes = "Diabetes"
+    ),
+    missing = "ifany",
+    digits  = all_continuous() ~ 2
+  ) %>%
+  bold_labels()
+ 
+tbl_longitudinal
+```
+# backward selection
+```{r}
+cox_predictors <- c("age", "bp", "diabetes", "chol", "smoke", "bmi", "hd", "med")
+
+run_backward_cox <- function(data, vars) {
+  
+  # use complete cases
+  df_complete <- data |>
+    dplyr::select(all_of(c("time", "stroke", vars))) |>
+    na.omit()
+  
+  full_formula <- as.formula(
+    paste("Surv(time, stroke) ~", paste(vars, collapse = " + "))
+  )
+  
+  full_model <- coxph(full_formula, data = df_complete)
+  
+  step_model <- step(full_model, direction = "backward", trace = 1)
+  
+  return(step_model)
+}
+
+# Male
+backward_male <- analysis_baseline |>
+  filter(sex == "Male") |>
+  run_backward_cox(cox_predictors)
+
+# Female
+backward_female <- analysis_baseline |>
+  filter(sex == "Female") |>
+  run_backward_cox(cox_predictors)
+
+summary(backward_male)
+summary(backward_female)
+```
+
+
+# univariable cox regression
+```{r}
+run_uni_cox <- function(data) {
+  map_dfr(cox_predictors, function(var) {
+    
+    fit <- coxph(
+      as.formula(paste("Surv(time, stroke) ~", var)),
+      data = data
+    )
+    
+    tidy(fit, conf.int = TRUE) |>
+      filter(term != "(Intercept)") |>
+      transmute(
+        Variable = term,
+        Uni_HR = paste0(
+          round(exp(estimate), 2), " (",
+          round(exp(conf.low), 2), ", ",
+          round(exp(conf.high), 2), ")"
+        ),
+        Uni_P = ifelse(p.value < 0.001, "<0.001", sprintf("%.3f", p.value))
+      )
+  })
+}
+
+# Male
+uni_male <- analysis_baseline |>
+  filter(sex == "Male") |>
+  run_uni_cox()
+
+# Female
+uni_female <- analysis_baseline |>
+  filter(sex == "Female") |>
+  run_uni_cox()
+```
+
+
+# multivariable cox regression
+```{r}
+multi_vars <- c("age", "bp", "diabetes","smoke") 
+
+run_multi_cox <- function(data, vars) {
+  
+  formula <- as.formula(
+    paste("Surv(time, stroke) ~", paste(vars, collapse = " + "))
+  )
+  
+  fit <- coxph(formula, data = data)
+  
+  tidy(fit, conf.int = TRUE) |>
+    filter(term != "(Intercept)") |>
+    transmute(
+      Variable = term,
+      Multi_HR = paste0(
+        round(exp(estimate), 2), " (",
+        round(exp(conf.low), 2), ", ",
+        round(exp(conf.high), 2), ")"
+      ),
+      Multi_P = ifelse(p.value < 0.001, "<0.001", sprintf("%.3f", p.value))
+    )
+}
+
+# Male
+multi_male <- analysis_baseline |>
+  filter(sex == "Male") |>
+  run_multi_cox(multi_vars)
+
+# Female
+multi_female <- analysis_baseline |>
+  filter(sex == "Female") |>
+  run_multi_cox(multi_vars)
+```
+
+```{r}
+final_table_male <- uni_male |>
+  left_join(multi_male, by = "Variable")
+
+final_table_female <- uni_female |>
+  left_join(multi_female, by = "Variable")
+
+kable(
+  final_table_male,
+  format = "pipe",
+  col.names = c(
+    "Variable",
+    "Univariable HR (95% CI)", "Univariable P-value",
+    "Multivariable HR (95% CI)", "Multivariable P-value"
+  )
+)
+
+kable(
+  final_table_female,
+  format = "pipe",
+  col.names = c(
+    "Variable",
+    "Univariable HR (95% CI)", "Univariable P-value",
+    "Multivariable HR (95% CI)", "Multivariable P-value"
+  )
+)
+```
+# ph test
+```{r}
+cox_male <- coxph(
+  Surv(time, stroke) ~ age + bp + diabetes + smoke,
+  data = analysis_baseline |> filter(sex == "Male")
+)
+
+summary(cox_male)
+
+ph_male <- cox.zph(cox_male)
+print(ph_male)
+ggcoxzph(ph_male)
+```
+
+
+```{r}
+cox_female <- coxph(
+  Surv(time, stroke) ~ age + bp + diabetes + smoke,
+  data = analysis_baseline |> filter(sex == "Female")
+)
+
+summary(cox_female)
+
+ph_female <- cox.zph(cox_female)
+print(ph_female)
+ggcoxzph(ph_female)
+```
+# profile for 10 year survival prob
+```{r}
+bp_ref <- analysis_baseline %>%
+  mutate(bp_group = ifelse(bp > 160, "high", "low")) %>%
+  group_by(sex, bp_group) %>%
+  summarise(mean_bp = mean(bp, na.rm = TRUE), .groups = "drop")
+
+
+make_prob_table_simple <- function(model, df, sex_label, bp_ref) {
+  
+  bp_means <- bp_ref %>% filter(sex == sex_label)
+
+  model_vars <- attr(model$terms, "term.labels")
+  
+  newdata <- expand.grid(
+    age      = c(40, 50, 60),
+    diabetes = c("No", "Yes"),
+    smoke    = c("No", "Yes"),
+    bp_group = c("low", "high")
+  ) %>%
+    mutate(
+      bp = ifelse(
+        bp_group == "high",
+        bp_means$mean_bp[bp_means$bp_group == "high"],
+        bp_means$mean_bp[bp_means$bp_group == "low"]
+      ),
+      diabetes = factor(diabetes, levels = c("No", "Yes")),
+      smoke    = factor(smoke,    levels = c("No", "Yes"))
+    )
+  
+  mode_val <- function(x) {
+    ux <- na.omit(unique(x))
+    ux[which.max(tabulate(match(x, ux)))]
+  }
+  
+  ref <- list(
+    chol = mean(df$chol, na.rm = TRUE),
+    bmi  = mean(df$bmi,  na.rm = TRUE),
+    hd   = mode_val(df$hd),
+    med  = mode_val(df$med)
+  )
+  
+  for (v in intersect(model_vars, names(ref))) {
+    newdata[[v]] <- ref[[v]]
+  }
+
+  sf      <- survfit(model, newdata = newdata)
+  sf_sum  <- summary(sf, times = 3652, extend = TRUE)
+  
+  surv_10y <- as.numeric(sf_sum$surv[1, ])
+  
+  newdata %>%
+    mutate(stroke_10y = round((1 - surv_10y) * 100, 2)) %>%
+    dplyr::select(age, diabetes, smoke, bp_group, stroke_10y) %>%
+    arrange(age, diabetes, smoke, bp_group)
+}
+```
+
+```{r}
+prob_male <- make_prob_table_simple(
+  cox_male,
+  analysis_baseline %>% filter(sex == "Male"),
+  "Male",
+  bp_ref
+)
+
+prob_female <- make_prob_table_simple(
+  cox_female,
+  analysis_baseline %>% filter(sex == "Female"),
+  "Female",
+  bp_ref
+)
+
+combined_prob <- prob_male %>%
+  rename(Male = stroke_10y) %>%
+  left_join(
+    prob_female %>% rename(Female = stroke_10y),
+    by = c("age", "diabetes", "smoke", "bp_group")
+  )
+
+combined_prob
+
+cat(
+  kable(
+    combined_prob,
+    format = "latex",
+    booktabs = TRUE,
+    digits = 3
+  ),
+  file = "prob_table.tex"
+)
+```
+
+
