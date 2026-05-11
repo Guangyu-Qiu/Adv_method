@@ -4,8 +4,408 @@ author: "Guangyu Qiu"
 date: "2026-05-03"
 output: pdf_document
 ---
-
+# library and settings
 ```{r}
-
+set.seed(648)
+library(hdrm)
+library(glmnet)
+library(dplyr)
 ```
+
+# simulation loop
+```{r}
+# Global settings ---------------------------------------------------------------
+p <- 20
+p1 <- 5
+B <- 10000  # simulation reps
+
+my_beta <- c(0.5/3, 1/3, 1.5/3, 2/3, 2.5/3, rep(0, 15))
+true_vars <- 1:5
+null_vars  <- 6:20
+
+# the matrix to store our results
+methods <- c("pval", "aic", "bic", "lasso_min", "lasso_1se", "enet_min", "enet_1se")
+
+# simulation scenarios
+scenario_grid <- expand.grid(
+  n = c(250, 500),
+  rho = c(0, 0.35, 0.70)
+)
+
+all_results <- list()
+
+for (s in 1:nrow(scenario_grid)) {
+  
+  n   <- scenario_grid$n[s]
+  rho <- scenario_grid$rho[s]
+  
+  scenario_name <- paste0("N", n, "_rho", rho)
+  cat("Running Scenario:", scenario_name, "\n")
+  
+
+  # Storage Matrices
+  selected_mat <- list()
+  betahat_mat  <- list()
+  ci_low_mat   <- list()
+  ci_high_mat  <- list()
+  
+  for (m in methods) {
+    
+    selected_mat[[m]] <- matrix(0,  nrow = B, ncol = p)
+    betahat_mat[[m]]  <- matrix(0,  nrow = B, ncol = p)
+    ci_low_mat[[m]]   <- matrix(NA, nrow = B, ncol = p)
+    ci_high_mat[[m]]  <- matrix(NA, nrow = B, ncol = p)
+  }
+  
+  # Simulation Loop ---------------------------------------------------------------
+  for (b in 1:B) {
+
+    # Generate Data
+    dat <- gen_data(
+      n = n,
+      p = p,
+      p1 = p1,
+      beta = my_beta,
+      family = "gaussian",
+      corr = "exchangeable",
+      rho = rho)
+    
+    X <- dat$X
+    y <- dat$y
+    
+    df <- data.frame(y = y, X)
+    
+    X_mat <- as.matrix(X)
+    
+    # Full Model
+    full_mod <- lm(y ~ ., data = df)
+
+    # Method 1: Backward p-value ---------------------------------------------------------------
+    mod_pval <- full_mod
+    
+    repeat {
+      
+      pvals <- summary(mod_pval)$coefficients[-1, 4]
+      
+      if (length(pvals) == 0) break
+      
+      max_p <- max(pvals)
+      
+      if (max_p > 0.05) {
+        
+        drop_var <- names(which.max(pvals))
+        
+        remaining <- setdiff(
+          names(coef(mod_pval))[-1],
+          drop_var
+        )
+        
+        if (length(remaining) == 0) {
+          
+          mod_pval <- lm(y ~ 1, data = df)
+          break
+        }
+        
+        mod_pval <- lm(
+          as.formula(
+            paste("y ~", paste(remaining, collapse = "+"))
+          ),
+          data = df
+        )
+        
+      } else {
+        break
+      }
+    }
+
+    # Method 2: Backward AIC ---------------------------------------------------------------
+    mod_aic <- step(full_mod, direction = "backward", k = 2, trace = 0)
+    
+    # Method 3: Backward BIC ---------------------------------------------------------------
+   mod_bic <- step(full_mod, direction = "backward", k = log(n), trace = 0)
+    
+    # Method 4 & 5: LASSO ---------------------------------------------------------------
+    cv_lasso <- cv.glmnet(X_mat,y,alpha = 1,nfolds = 10)
+    
+    coef_lasso_min <- coef(
+      cv_lasso,
+      s = "lambda.min")[-1]
+    
+    coef_lasso_1se <- coef(
+      cv_lasso,
+      s = "lambda.1se")[-1]
+    
+    sel_lasso_min <- which(coef_lasso_min != 0)
+    sel_lasso_1se <- which(coef_lasso_1se != 0)
+
+    # Method 6 & 7: Elastic Net ---------------------------------------------------------------
+    cv_enet <- cv.glmnet(
+      X_mat,
+      y,
+      alpha = 0.5,
+      nfolds = 10
+    )
+    
+    coef_enet_min <- coef(
+      cv_enet,
+      s = "lambda.min"
+    )[-1]
+    
+    coef_enet_1se <- coef(
+      cv_enet,
+      s = "lambda.1se"
+    )[-1]
+    
+    sel_enet_min <- which(coef_enet_min != 0)
+    sel_enet_1se <- which(coef_enet_1se != 0)
+    
+    # ============================================================
+    # Store Results Helper
+    # ============================================================
+    
+    store_results <- function(
+      method_name,
+      selected_vars
+    ) {
+      
+      if (length(selected_vars) == 0) return(NULL)
+      
+      selected_mat[[method_name]][b, selected_vars] <<- 1
+      
+      refit_mod <- lm(
+        as.formula(
+          paste(
+            "y ~",
+            paste(colnames(X)[selected_vars], collapse = "+")
+          )
+        ),
+        data = df
+      )
+      
+      ci <- confint(refit_mod)[-1, , drop = FALSE]
+      
+      bhat <- coef(refit_mod)[-1]
+      
+      betahat_mat[[method_name]][b, selected_vars] <<- bhat
+      
+      ci_low_mat[[method_name]][b, selected_vars] <<- ci[, 1]
+      
+      ci_high_mat[[method_name]][b, selected_vars] <<- ci[, 2]
+    }
+    
+    # ============================================================
+    # Store Each Method
+    # ============================================================
+    
+    sel_pval <- match(
+      names(coef(mod_pval))[-1],
+      colnames(df)[-1]
+    )
+    
+    sel_pval <- sel_pval[!is.na(sel_pval)]
+    
+    sel_aic <- match(
+      names(coef(mod_aic))[-1],
+      colnames(df)[-1]
+    )
+    
+    sel_aic <- sel_aic[!is.na(sel_aic)]
+    
+    sel_bic <- match(
+      names(coef(mod_bic))[-1],
+      colnames(df)[-1]
+    )
+    
+    sel_bic <- sel_bic[!is.na(sel_bic)]
+    
+    store_results("pval",       sel_pval)
+    store_results("aic",        sel_aic)
+    store_results("bic",        sel_bic)
+    store_results("lasso_min",  sel_lasso_min)
+    store_results("lasso_1se",  sel_lasso_1se)
+    store_results("enet_min",   sel_enet_min)
+    store_results("enet_1se",   sel_enet_1se)
+    
+    # ============================================================
+    # Progress
+    # ============================================================
+    
+    if (b %% 500 == 0) {
+      
+      cat(
+        "Scenario:",
+        scenario_name,
+        "| Rep:",
+        b,
+        "of",
+        B,
+        "\n"
+      )
+    }
+  }
+  
+  # ============================================================
+  # Summarize Results
+  # ============================================================
+  
+  scenario_summary <- data.frame()
+  
+  for (m in methods) {
+    
+    # ============================================================
+    # TPR
+    # ============================================================
+    
+    tpr_each <- colMeans(
+      selected_mat[[m]][, true_vars]
+    )
+    
+    mean_tpr <- mean(tpr_each)
+    
+    # ============================================================
+    # FPR
+    # ============================================================
+    
+    fpr_each <- colMeans(
+      selected_mat[[m]][, null_vars]
+    )
+    
+    mean_fpr <- mean(fpr_each)
+    
+    # ============================================================
+    # Any False Positive
+    # ============================================================
+    
+    any_fp <- mean(
+      rowSums(
+        selected_mat[[m]][, null_vars]
+      ) > 0
+    )
+    
+    # ============================================================
+    # Type I / Type II
+    # ============================================================
+    
+    type1 <- mean_fpr
+    
+    type2 <- 1 - mean_tpr
+    
+    # ============================================================
+    # Bias
+    # Unconditional:
+    # Non-selected variables are assigned beta_hat = 0
+    # ============================================================
+    
+    bias_each <- colMeans(
+      betahat_mat[[m]][, true_vars]
+    ) - my_beta[true_vars]
+    
+    mean_bias <- mean(abs(bias_each))
+    
+    # ============================================================
+    # Coverage
+    # Non-selected variables are treated as NOT covered
+    # ============================================================
+    
+    coverage_each <- rep(NA, 5)
+    
+    for (j in 1:5) {
+      
+      covers <- (
+        ci_low_mat[[m]][, j] <= my_beta[j]
+      ) &
+        (
+          ci_high_mat[[m]][, j] >= my_beta[j]
+        )
+      
+      covers[is.na(covers)] <- FALSE
+      
+      coverage_each[j] <- mean(covers)
+    }
+    
+    mean_coverage <- mean(coverage_each)
+    
+    # ============================================================
+    # Number of Variables Selected
+    # ============================================================
+    
+    avg_model_size <- mean(
+      rowSums(selected_mat[[m]])
+    )
+    
+    # ============================================================
+    # Final Summary Row
+    # ============================================================
+    
+    tmp <- data.frame(
+      Scenario       = scenario_name,
+      Method         = m,
+      Mean_TPR       = round(mean_tpr, 3),
+      Mean_FPR       = round(mean_fpr, 3),
+      Any_FP         = round(any_fp, 3),
+      Type_I_Error   = round(type1, 3),
+      Type_II_Error  = round(type2, 3),
+      Mean_Abs_Bias  = round(mean_bias, 4),
+      Mean_Coverage  = round(mean_coverage, 3),
+      Avg_Model_Size = round(avg_model_size, 2)
+    )
+    
+    scenario_summary <- rbind(
+      scenario_summary,
+      tmp
+    )
+  }
+  
+  # ============================================================
+  # Store Scenario Summary
+  # ============================================================
+  
+  all_results[[scenario_name]] <- scenario_summary
+  
+  # ============================================================
+  # Save Intermediate Results
+  # ============================================================
+  
+  saveRDS(
+    scenario_summary,
+    paste0("summary_", scenario_name, ".rds")
+  )
+  
+  write.csv(
+    scenario_summary,
+    paste0("summary_", scenario_name, ".csv"),
+    row.names = FALSE
+  )
+  
+  cat("\nFinished:", scenario_name, "\n")
+}
+
+# ============================================================
+# Combine Final Results
+# ============================================================
+
+final_results <- bind_rows(all_results)
+
+# ============================================================
+# Save Final Results
+# ============================================================
+
+write.csv(
+  final_results,
+  "final_simulation_results.csv",
+  row.names = FALSE
+)
+
+saveRDS(
+  final_results,
+  "final_simulation_results.rds"
+)
+
+# ============================================================
+# Print Final Results
+# ============================================================
+
+print(final_results)
+```
+
 
