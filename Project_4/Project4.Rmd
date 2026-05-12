@@ -14,6 +14,7 @@ library(dplyr)
 
 # simulation loop
 ```{r}
+set.seed(648)
 # Global settings ---------------------------------------------------------------
 p <- 20
 p1 <- 5
